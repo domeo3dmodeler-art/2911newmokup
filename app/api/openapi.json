@@ -1,0 +1,16 @@
+{
+  "openapi":"3.0.0","info":{"title":"Domeo Doors API (Next)","version":"0.1.0"},
+  "paths":{
+    "/api/health":{"get":{}},
+    "/api/catalog/doors/models":{"get":{}},
+    "/api/catalog/doors/options":{"get":{}},
+    "/api/price/doors":{"post":{}},
+    "/api/cart/export/doors/kp":{"post":{}},
+    "/api/cart/export/doors/invoice":{"post":{}},
+    "/api/cart/export/doors/factory":{"post":{}},
+    "/api/admin/import/doors":{"post":{}},
+    "/api/admin/media/upload":{"post":{}},
+    "/api/auth/register":{"post":{}},
+    "/api/auth/login":{"post":{}}
+  }
+}

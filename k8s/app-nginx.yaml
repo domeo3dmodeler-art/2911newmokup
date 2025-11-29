@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: domeo-app
+  namespace: domeo-staging
+  labels:
+    app: domeo-app
+    version: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: domeo-app
+  template:
+    metadata:
+      labels:
+        app: domeo-app
+        version: staging
+    spec:
+      containers:
+      - name: domeo-app
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo '<!DOCTYPE html>
+            <html>
+            <head>
+                <title>Domeo Application</title>
+                <meta charset="utf-8">
+            </head>
+            <body>
+                <h1>🎉 Domeo Application</h1>
+                <p>Приложение успешно развернуто в Kubernetes!</p>
+                <p>Время: '$(date)'</p>
+                <p>Статус: Работает</p>
+                <hr>
+                <h2>Информация о системе:</h2>
+                <ul>
+                    <li>Namespace: domeo-staging</li>
+                    <li>Pod: '$(hostname)'</li>
+                    <li>Node: '$(cat /proc/sys/kernel/hostname)'</li>
+                </ul>
+            </body>
+            </html>' > /usr/share/nginx/html/index.html
+            nginx -g "daemon off;"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: domeo-app-service
+  namespace: domeo-staging
+  labels:
+    app: domeo-app
+spec:
+  selector:
+    app: domeo-app
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  type: LoadBalancer
+

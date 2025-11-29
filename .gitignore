@@ -1,0 +1,175 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+.next/
+out/
+build/
+
+# Environment variables
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.backup.*
+*.bak
+*.tar.gz
+
+# Exclude backup directories and LFS files
+20251128_155508/
+backup_*/
+app/light/
+DB_updated.xlsx
+docs/*.xlsx
+scripts/products_new_sku_format_2025-10-11.xlsx
+public/price_export.csv
+public/uploads/
+uploads/
+
+# SSH keys
+*.pem
+*.key
+staging_key
+production_key
+
+# Temporary files
+tmp/
+temp/
+
+# Test files
+TEST_WORKFLOW.md
+
+# Temporary audit and check scripts
+check-*.js
+CHECK_*.ps1
+test-*.js
+test-*.ps1
+clear-*.js
+delete-*.js
+clean-*.js
+
+# Temporary analysis scripts
+audit-*.js
+investigate-*.js
+fix-*.js
+find-*.js
+*-monitor.js
+optimize-*.js
+
+# Temporary reports
+*REPORT*.md
+*ANALYSIS*.md
+*PLAN*.md
+*FIX*.md
+*STATUS*.md
+*SOLUTION*.md
+*DIAGNOSTIC*.md
+
+# Temporary JSON reports
+*report.json
+*audit*.json
+*optimization*.json
+action-plan.json
+
+# Temporary SQL files in root
+fix_*.sql
+users_data.sql
+schema.sql
+
+# Cleanup scripts
+cleanup-*.ps1
+cleanup-*.txt
+cleanup-report.json
+
+# Temporary feature scripts
+create-*-report.js
+# TypeScript error reports
+ts_errors*.txt
+tsconfig.tsbuildinfo
+
+# Test results
+test-results/
+playwright-report/

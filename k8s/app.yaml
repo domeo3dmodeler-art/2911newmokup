@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: domeo-app
+  namespace: domeo-staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: domeo-app
+  template:
+    metadata:
+      labels:
+        app: domeo-app
+    spec:
+      containers:
+      - name: domeo-app
+        image: cr.yandex/crpuein3jvjccnafs2vc/domeo:staging-latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "staging"
+        - name: DATABASE_URL
+          value: "postgresql://domeo_admin:jbx-R8B-PST-d8x@c9q9lthigo2ncgm3orfe.mdb.yandexcloud.net:6432/domeo"
+        - name: JWT_SECRET
+          value: "staging-jwt-secret-key-change-in-production"
+        - name: YANDEX_ACCESS_KEY_ID
+          value: "staging-access-key"
+        - name: YANDEX_SECRET_ACCESS_KEY
+          value: "staging-secret-key"
+        - name: YANDEX_BUCKET_NAME
+          value: "domeo-staging"
+        - name: YANDEX_REGION
+          value: "ru-central1"
+        - name: NEXT_PUBLIC_BASE_URL
+          value: "https://staging.domeo.ru"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: domeo-app-service
+  namespace: domeo-staging
+spec:
+  selector:
+    app: domeo-app
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: LoadBalancer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: domeo-ingress
+  namespace: domeo-staging
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - staging.domeo.ru
+    secretName: domeo-tls
+  rules:
+  - host: staging.domeo.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: domeo-app-service
+            port:
+              number: 80

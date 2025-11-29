@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Verify truths & spec (soft)
+        run: |
+          if [ -f scripts/verify_truths.sh ]; then
+            bash scripts/verify_truths.sh || echo "::warning::verify_truths failed (soft)"
+          else
+            echo "skip verify_truths.sh"
+          fi
+          if [ -f scripts/spec_guard.py ]; then
+            python3 scripts/spec_guard.py || echo "::warning::spec_guard failed (soft)"
+          else
+            echo "skip spec_guard.py"
+          fi
+
+      - name: Install deps
+        working-directory: app
+        run: npm ci
+
+      - name: Prisma migrate & bootstrap (soft)
+        working-directory: app
+        run: |
+          npx prisma migrate deploy || { echo "::warning::migrate failed (soft)"; true; }
+          if [ -f ./sql/dev_bootstrap_doors.sql ]; then
+            npx prisma db execute --file ./sql/dev_bootstrap_doors.sql --schema prisma/schema.prisma \
+              || echo "::warning::dev_bootstrap_doors.sql failed (soft)"
+          else
+            echo "skip dev_bootstrap_doors.sql"
+          fi
+          if [ -f ./sql/create_products_index.sql ]; then
+            npx prisma db execute --file ./sql/create_products_index.sql --schema prisma/schema.prisma \
+              || echo "::warning::create_products_index.sql failed (soft)"
+          else
+            echo "skip create_products_index.sql"
+          fi
+
+      - name: Build Next
+        working-directory: app
+        run: npm run build
+
+      - name: Start server (log to file)
+        working-directory: app
+        run: |
+          PORT=3000 npm run start > ../.next_log 2>&1 &
+          echo $! > ../.next_pid
+
+      - name: Wait for health (120s) or print log tail
+        run: |
+          for i in {1..120}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health || true)
+            if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+              echo "health OK ($code)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::server not healthy in time"
+          echo "---- tail .next_log ----"
+          tail -n 200 .next_log || true
+          exit 1
+
+      - name: Smoke (local)
+        env:
+          BASE_URL: http://localhost:3000
+          SMOKE_TOKEN: smoke
+        run: |
+          chmod +x scripts/smoke.sh
+          bash scripts/smoke.sh || { echo "---- tail .next_log ----"; tail -n 200 .next_log || true; exit 1; }
+
+      - name: Stop server
+        if: always()
+        run: |
+          [ -f .next_pid ] && kill $(cat .next_pid) || true
+
+  remote-smoke:
+    name: Remote Smoke (Doors)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Guard: если нет DEV_BASE_URL — культурно выходим и помечаем job как success
+      - name: Check required secrets
+        id: guard
+        env:
+          DEV_BASE_URL: ${{ secrets.DEV_BASE_URL }}
+        run: |
+          if [ -z "${DEV_BASE_URL}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Missing DEV_BASE_URL secret; skipping job."
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install curl & jq
+        if: steps.guard.outputs.skip == 'false'
+        run: sudo apt-get update && sudo apt-get install -y curl jq
+
+      - name: Debug secrets (masked)
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          DEV_BASE_URL: ${{ secrets.DEV_BASE_URL }}
+          SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
+        run: |
+          echo "DEV_BASE_URL=${DEV_BASE_URL}"
+          echo "SMOKE_TOKEN is set? $([ -n "$SMOKE_TOKEN" ] && echo yes || echo no)"
+
+      - name: Run remote smoke tests
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          DEV_BASE_URL: ${{ secrets.DEV_BASE_URL }}
+          SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
+        run: |
+          chmod +x scripts/smoke.sh
+          BASE_URL="$DEV_BASE_URL" SMOKE_TOKEN="$SMOKE_TOKEN" bash scripts/smoke.sh

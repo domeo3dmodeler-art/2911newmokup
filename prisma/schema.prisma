@@ -1,0 +1,582 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl", "linux-musl-openssl-3.0.x", "windows"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password_hash String
+  first_name    String
+  last_name     String
+  middle_name   String?
+  role          String    @default("admin")
+  is_active     Boolean   @default(true)
+  last_login    DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  
+  // Связи
+  document_comments DocumentComment[]
+  document_history  DocumentHistory[]
+  notifications     Notification[]
+
+  @@map("users")
+}
+
+model Client {
+  id                    String   @id @default(cuid())
+  firstName             String
+  lastName              String
+  middleName            String?
+  phone                 String
+  address               String
+  objectId              String   // ID объекта
+  compilationLeadNumber String?  // Номер лида комплектации
+  customFields          String   @default("{}") // JSON с произвольными полями
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Связи с документами
+  quotes        Quote[]
+  invoices      Invoice[]
+  orders        Order[]
+  documents     Document[]
+  notifications Notification[]
+
+  @@index([phone])
+  @@index([firstName, lastName])
+  @@map("clients")
+}
+
+model CatalogCategory {
+  id                   String                       @id @default(cuid())
+  name                 String
+  parent_id            String?
+  level                Int                          @default(0)
+  path                 String
+  sort_order           Int                          @default(0)
+  is_active            Boolean                      @default(true)
+  products_count       Int                          @default(0)
+  created_at           DateTime                     @default(now())
+  updated_at           DateTime                     @updatedAt
+  parent               CatalogCategory?             @relation("CatalogHierarchy", fields: [parent_id], references: [id], onDelete: Cascade)
+  subcategories        CatalogCategory[]            @relation("CatalogHierarchy")
+  property_assignments CategoryPropertyAssignment[]
+  export_settings      ExportSetting[]
+  import_templates     ImportTemplate[]
+  products             Product[]
+
+  @@index([parent_id])
+  @@index([path])
+  @@map("catalog_categories")
+}
+
+model ProductProperty {
+  id                   String                       @id @default(cuid())
+  name                 String                       @unique
+  type                 String
+  description          String?
+  options              String?
+  is_required          Boolean                      @default(false)
+  is_active            Boolean                      @default(true)
+  created_at           DateTime                     @default(now())
+  updated_at           DateTime                     @updatedAt
+  category_assignments CategoryPropertyAssignment[]
+
+  @@map("product_properties")
+}
+
+model CategoryPropertyAssignment {
+  id                  String          @id @default(cuid())
+  catalog_category_id String
+  product_property_id String
+  is_required         Boolean         @default(false)
+  is_for_calculator   Boolean         @default(false)
+  is_for_export       Boolean         @default(false)
+  sort_order          Int             @default(0)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  product_property    ProductProperty @relation(fields: [product_property_id], references: [id], onDelete: Cascade)
+  catalog_category    CatalogCategory @relation(fields: [catalog_category_id], references: [id], onDelete: Cascade)
+
+  @@unique([catalog_category_id, product_property_id])
+  @@map("category_property_assignments")
+}
+
+model ImportTemplate {
+  id                  String          @id @default(cuid())
+  catalog_category_id String          @unique // Один шаблон на категорию каталога
+  name                String
+  description         String?         // Описание шаблона
+  required_fields     String          @default("[]") // Обязательные поля
+  calculator_fields   String          @default("[]") // Поля для калькулятора
+  export_fields       String          @default("[]") // Поля для экспорта
+  template_config     String?         // JSON конфигурация шаблона
+  field_mappings      String?         // JSON маппинг полей
+  validation_rules    String?         // JSON правила валидации
+  is_active           Boolean         @default(true)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  
+  // Связи
+  catalog_category    CatalogCategory @relation(fields: [catalog_category_id], references: [id], onDelete: Cascade)
+  import_history      ImportHistory[]
+
+  @@index([catalog_category_id])
+  @@map("import_templates")
+}
+
+model ConstructorConfiguration {
+  id            String   @id @default(cuid())
+  categoryId    String
+  name          String
+  configuration String   // JSON configuration of the constructor
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("constructor_configurations")
+}
+
+model Document {
+  id            String   @id @default(cuid())
+  clientId      String
+  type          String   // 'quote', 'invoice', 'order'
+  status        String   @default("draft") // 'draft', 'sent', 'paid', 'cancelled'
+  content       String   // JSON содержимого документа
+  documentData  String?  // JSON дополнительных данных
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Связи
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+model ExportSetting {
+  id                  String          @id @default(cuid())
+  catalog_category_id String
+  export_type         String
+  fields_config       String          @default("[]")
+  display_config      String          @default("{}")
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  catalog_category    CatalogCategory @relation(fields: [catalog_category_id], references: [id], onDelete: Cascade)
+
+  @@unique([catalog_category_id, export_type])
+  @@map("export_settings")
+}
+
+model FrontendCategory {
+  id                   String   @id @default(cuid())
+  name                 String
+  slug                 String   @unique
+  description          String?
+  icon                 String?
+  catalog_category_ids String   @default("[]") // JSON массив ID категорий каталога
+  display_config       String   @default("{}")
+  property_mapping     String?  @default("[]")
+  photo_mapping        String?  @default("{}")
+  photo_data           String?  @default("{}")
+  is_active            Boolean  @default(true)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([slug])
+  @@map("frontend_categories")
+}
+
+model ConstructorConfig {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  config      String   // JSON конфигурация конструктора
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@map("constructor_configs")
+}
+
+
+model Product {
+  id                  String          @id @default(cuid())
+  catalog_category_id String
+  sku                 String          @unique
+  name                String
+  description         String?
+  brand               String?
+  model               String?
+  series              String?
+  base_price          Float
+  currency            String          @default("RUB")
+  stock_quantity      Int             @default(0)
+  min_order_qty       Int             @default(1)
+  weight              Float?
+  dimensions          String          @default("{}")
+  specifications      String          @default("{}")
+  properties_data     String          @default("{}")
+  tags                String          @default("[]")
+  is_active           Boolean         @default(true)
+  is_featured         Boolean         @default(false)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  catalog_category    CatalogCategory @relation(fields: [catalog_category_id], references: [id], onDelete: Cascade)
+  images              ProductImage[]
+
+  @@map("products")
+  @@index([catalog_category_id])
+  @@index([is_active])
+  @@index([created_at])
+  @@index([properties_data])
+}
+
+model ProductImage {
+  id            String   @id @default(cuid())
+  product_id    String
+  filename      String
+  original_name String
+  url           String
+  alt_text      String?
+  width         Int?
+  height        Int?
+  file_size     Int?
+  mime_type     String
+  is_primary    Boolean  @default(false)
+  sort_order    Int      @default(0)
+  created_at    DateTime @default(now())
+  product       Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id])
+  @@index([is_primary])
+  @@map("product_images")
+}
+
+model Quote {
+  id                 String    @id @default(cuid())
+  number             String    @unique
+  parent_document_id String?   // Универсальная ссылка на родительский документ
+  cart_session_id    String?   // Сессия корзины для группировки документов
+  client_id          String
+  created_by         String
+  status             String    @default("DRAFT")
+  valid_until        DateTime?
+  subtotal           Float     @default(0)
+  tax_amount         Float     @default(0)
+  total_amount       Float     @default(0)
+  currency           String    @default("RUB")
+  notes              String?
+  terms              String?
+  cart_data          String?   // Данные корзины для перегенерации (JSON строка)
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  
+  // Связи
+  client       Client    @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  quote_items  QuoteItem[]
+
+  @@index([client_id])
+  @@index([status])
+  @@index([created_at])
+  @@index([created_by])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id          String  @id @default(cuid())
+  quote_id    String
+  product_id  String
+  quantity    Int
+  unit_price  Float
+  total_price Float
+  notes       String?
+  
+  // Связи
+  quote       Quote   @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+
+  @@index([quote_id])
+  @@index([product_id])
+  @@map("quote_items")
+}
+
+model Invoice {
+  id                 String    @id @default(cuid())
+  number             String    @unique
+  parent_document_id String?   // Универсальная ссылка на родительский документ
+  cart_session_id    String?   // Сессия корзины для группировки документов
+  order_id           String?   @unique // ID заказа (один счет на заказ) - @unique для one-to-one
+  client_id          String
+  created_by         String
+  status             String    @default("DRAFT")
+  invoice_date       DateTime  @default(now())
+  due_date           DateTime?
+  subtotal           Float     @default(0)
+  tax_amount         Float     @default(0)
+  total_amount       Float     @default(0)
+  currency           String    @default("RUB")
+  notes              String?
+  cart_data          String?   // Данные корзины для перегенерации (JSON строка)
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  
+  // Связи
+  client         Client      @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  invoice_items  InvoiceItem[]
+  order          Order?      @relation(fields: [order_id], references: [id])
+
+  @@index([client_id])
+  @@index([status])
+  @@index([created_at])
+  @@index([created_by])
+  @@index([parent_document_id])
+  @@index([order_id])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoice_id  String
+  product_id  String
+  quantity    Int
+  unit_price  Float
+  total_price Float
+  notes       String?
+  
+  // Связи
+  invoice     Invoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@index([invoice_id])
+  @@index([product_id])
+  @@map("invoice_items")
+}
+
+model SupplierOrder {
+  id                 String    @id @default(cuid())
+  number             String?   // Номер заказа у поставщика (как у связанного счета)
+  parent_document_id String?   // Универсальная ссылка на родительский документ
+  cart_session_id    String?   // Сессия корзины для группировки документов
+  executor_id        String
+  supplier_name      String
+  supplier_email     String?
+  supplier_phone     String?
+  status             String    @default("PENDING")
+  order_date         DateTime  @default(now())
+  expected_date      DateTime?
+  notes              String?
+  cart_data          String?   // Данные корзины для перегенерации (JSON строка)
+  total_amount       Float?    // Общая сумма заказа у поставщика
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  // Связи (убираем старые связи, так как теперь используем parent_document_id)
+  @@index([executor_id])
+  @@index([status])
+  @@index([created_at])
+  @@index([parent_document_id])
+  @@map("supplier_orders")
+}
+
+model ImportHistory {
+  id                  String   @id @default(cuid())
+  template_id         String?  // Связь с шаблоном загрузки
+  catalog_category_id String
+  filename            String
+  file_size           Int?
+  imported_count      Int      @default(0)
+  error_count         Int      @default(0)
+  status              String   @default("pending")
+  errors              String   @default("[]")
+  import_data         String?  // JSON данные импорта
+  created_at          DateTime @default(now())
+
+  // Связи
+  template ImportTemplate? @relation(fields: [template_id], references: [id])
+
+  @@index([template_id])
+  @@map("import_history")
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model Page {
+  id          String    @id @default(cuid())
+  title       String
+  description String    @default("")
+  url         String    @unique
+  isPublished Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Связи
+  elements    PageElement[]
+
+  @@map("pages")
+}
+
+model PageElement {
+  id        String   @id @default(cuid())
+  type      String
+  props     String   @default("{}") // JSON с настройками компонента
+  position  String   @default("{}") // JSON с позицией {x, y}
+  size      String   @default("{}") // JSON с размером {width, height}
+  zIndex    Int      @default(0)
+  parentId  String?  // ID родительского элемента
+  
+  // Связи
+  pageId    String
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("page_elements")
+}
+
+model PropertyPhoto {
+  id               String   @id @default(cuid())
+  categoryId       String   // Category ID (e.g., 'cmg50xcgs001cv7mn0tdyk1wo')
+  propertyName     String   // Property name (e.g., 'Артикул поставщика')
+  propertyValue    String   // Property value (e.g., 'd5', 'Base_1')
+  photoPath        String   // Path to photo file
+  photoType        String   @default("cover") // Type: 'cover', 'gallery_1', 'gallery_2', etc.
+  originalFilename String?  // Original filename for reference
+  fileSize         Int?     // File size in bytes
+  mimeType         String?  // MIME type (e.g., 'image/png')
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("property_photos")
+  @@unique([categoryId, propertyName, propertyValue, photoType])
+  @@index([categoryId])
+  @@index([propertyName])
+  @@index([propertyValue])
+  @@index([categoryId, propertyName, propertyValue])
+  @@index([photoType])
+}
+
+// Комментарии к документам
+model DocumentComment {
+  id          String   @id @default(cuid())
+  document_id String   // ID документа (quote, invoice, supplier_order)
+  user_id     String   // ID пользователя, оставившего комментарий
+  text        String   // Текст комментария
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  
+  // Связи
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@map("document_comments")
+  @@index([document_id])
+  @@index([user_id])
+  @@index([created_at])
+}
+
+// История изменений документов
+model DocumentHistory {
+  id          String   @id @default(cuid())
+  document_id String   // ID документа (quote, invoice, supplier_order)
+  user_id     String   // ID пользователя, совершившего действие
+  action      String   // Тип действия (status_change, created, updated, etc.)
+  old_value   String?  // Старое значение
+  new_value   String?  // Новое значение
+  details     String?  // Дополнительные детали (JSON)
+  created_at  DateTime @default(now())
+  
+  // Связи
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@map("document_history")
+  @@index([document_id])
+  @@index([user_id])
+  @@index([action])
+  @@index([created_at])
+}
+
+// Система уведомлений
+model Notification {
+  id          String   @id @default(cuid())
+  user_id     String   // ID пользователя, которому отправлено уведомление
+  client_id   String?  // ID клиента (опционально)
+  document_id String?  // ID документа (опционально)
+  type        String   // Тип уведомления (invoice_paid, status_changed, etc.)
+  title       String   // Заголовок уведомления
+  message     String   // Текст уведомления
+  is_read     Boolean  @default(false)
+  created_at  DateTime @default(now())
+  
+  // Связи
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  client      Client?  @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  
+  @@map("notifications")
+  @@index([user_id])
+  @@index([is_read])
+  @@index([created_at])
+}
+
+// Заказы (Orders) - основная сущность для управления заказами
+// К заказу привязан один счет (Invoice)
+model Order {
+  id                  String    @id @default(cuid())
+  number              String    @unique // Номер заказа (например, Заказ-123)
+  client_id           String
+  invoice_id          String?   // Связанный счет (один счет на заказ)
+  lead_number         String?   // Номер лида
+  complectator_id     String?   // ID комплектатора
+  executor_id         String?   // ID исполнителя
+  status              String    @default("NEW_PLANNED") // Статусы синхронизируются со статусами Invoice
+  
+  // Данные проекта
+  project_file_url    String?   // URL файла проекта/планировки (обязательное для проверки)
+  door_dimensions     String?   // JSON с размерами дверей: [{width, height, quantity, opening_side, latches_count, notes}]
+  measurement_done    Boolean   @default(false) // Был ли проведен замер
+  project_complexity  String?   // "SIMPLE" | "COMPLEX" | null
+  
+  // Файлы
+  wholesale_invoices  String?   // JSON массив URL оптовых счетов
+  technical_specs     String?   // JSON массив URL техзаданий на проемы (PDF)
+  
+  // Проверка
+  verification_status String?   // "PENDING" | "VERIFIED" | "FAILED"
+  verification_notes  String?   // Примечания проверки
+  
+  // Дедубликация
+  parent_document_id  String?   // Универсальная ссылка на родительский документ (null для Order как основного документа)
+  cart_session_id     String?   // Сессия корзины для группировки документов
+  cart_data           String?   // Данные корзины для перегенерации и дедубликации (JSON строка)
+  total_amount        Float?    // Общая сумма заказа (для дедубликации)
+  
+  notes               String?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  
+  // Связи
+  client              Client    @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  invoice             Invoice?  @relation // Обратная связь one-to-one
+  
+  @@index([client_id])
+  @@index([status])
+  @@index([invoice_id])
+  @@index([executor_id])
+  @@index([created_at])
+  @@index([parent_document_id])
+  @@index([cart_session_id])
+  @@map("orders")
+}

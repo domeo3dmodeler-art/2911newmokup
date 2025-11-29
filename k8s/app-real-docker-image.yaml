@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: domeo-app
+  namespace: domeo-staging
+  labels:
+    app: domeo-app
+    version: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: domeo-app
+  template:
+    metadata:
+      labels:
+        app: domeo-app
+        version: staging
+    spec:
+      containers:
+      - name: domeo-app
+        image: domeo-app:latest  # ВАШ НАСТОЯЩИЙ ОБРАЗ!
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          value: "staging"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: domeo-secrets
+              key: database-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: domeo-secrets
+              key: jwt-secret
+        - name: YANDEX_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: domeo-secrets
+              key: yandex-access-key
+        - name: YANDEX_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: domeo-secrets
+              key: yandex-secret-key
+        - name: YANDEX_BUCKET_NAME
+          value: "domeo-staging"
+        - name: YANDEX_REGION
+          value: "ru-central1"
+        - name: NEXT_PUBLIC_BASE_URL
+          value: "https://staging.domeo.ru"
+        - name: PORT
+          value: "3000"
+        - name: HOSTNAME
+          value: "0.0.0.0"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 30
+        # НЕТ COMMAND И ARGS - ИСПОЛЬЗУЕМ ВАШ CMD!
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: domeo-app-service
+  namespace: domeo-staging
+  labels:
+    app: domeo-app
+spec:
+  selector:
+    app: domeo-app
+  ports:
+  - port: 80
+    targetPort: 3000
+    name: http
+  type: LoadBalancer
+

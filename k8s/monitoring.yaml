@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: domeo-staging
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    rule_files:
+      - "domeo-alerts.yml"
+    
+    scrape_configs:
+      - job_name: 'domeo-app'
+        static_configs:
+          - targets: ['domeo-app-service:80']
+        metrics_path: '/api/metrics'
+        scrape_interval: 30s
+      
+      - job_name: 'postgres'
+        static_configs:
+          - targets: ['postgres-service:5432']
+        scrape_interval: 30s
+      
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - domeo-staging
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: domeo-alerts
+  namespace: domeo-staging
+data:
+  domeo-alerts.yml: |
+    groups:
+      - name: domeo.rules
+        rules:
+          - alert: DomeoAppDown
+            expr: up{job="domeo-app"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Domeo application is down"
+              description: "Domeo application has been down for more than 1 minute."
+          
+          - alert: DomeoHighMemoryUsage
+            expr: (container_memory_usage_bytes{name="domeo-app"} / container_spec_memory_limit_bytes{name="domeo-app"}) > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage"
+              description: "Domeo application memory usage is above 80%"
+          
+          - alert: DomeoHighCPUUsage
+            expr: (rate(container_cpu_usage_seconds_total{name="domeo-app"}[5m])) > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage"
+              description: "Domeo application CPU usage is above 80%"
+          
+          - alert: DomeoSlowResponse
+            expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="domeo-app"}[5m])) > 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Slow response time"
+              description: "Domeo application 95th percentile response time is above 2 seconds"
+          
+          - alert: DomeoHighErrorRate
+            expr: rate(http_requests_total{job="domeo-app",status=~"5.."}[5m]) / rate(http_requests_total{job="domeo-app"}[5m]) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High error rate"
+              description: "Domeo application error rate is above 5%"
+          
+          - alert: PostgresDown
+            expr: up{job="postgres"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "PostgreSQL is down"
+              description: "PostgreSQL database has been down for more than 1 minute."
+          
+          - alert: PostgresHighConnections
+            expr: pg_stat_database_numbackends{job="postgres"} > 80
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High PostgreSQL connections"
+              description: "PostgreSQL has more than 80 active connections"
+
+

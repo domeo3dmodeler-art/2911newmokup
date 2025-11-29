@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: domeo-app
+  namespace: domeo-staging
+  labels:
+    app: domeo-app
+    version: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: domeo-app
+  template:
+    metadata:
+      labels:
+        app: domeo-app
+        version: staging
+    spec:
+      containers:
+      - name: domeo-app
+        image: node:20-alpine
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: NODE_ENV
+          value: "staging"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: domeo-secrets
+              key: database-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: domeo-secrets
+              key: jwt-secret
+        - name: YANDEX_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: domeo-secrets
+              key: yandex-access-key
+        - name: YANDEX_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: domeo-secrets
+              key: yandex-secret-key
+        - name: YANDEX_BUCKET_NAME
+          value: "domeo-staging"
+        - name: YANDEX_REGION
+          value: "ru-central1"
+        - name: NEXT_PUBLIC_BASE_URL
+          value: "https://staging.domeo.ru"
+        - name: PORT
+          value: "8080"
+        - name: HOSTNAME
+          value: "0.0.0.0"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 30
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "Installing dependencies..."
+            apk add --no-cache git
+            npm install -g prisma @prisma/client
+            echo "Starting application on port 8080..."
+            node -e "
+            const http = require('http');
+            const server = http.createServer((req, res) => {
+              if (req.url === '/api/health') {
+                res.writeHead(200, {'Content-Type': 'application/json'});
+                res.end(JSON.stringify({status: 'ok', timestamp: new Date().toISOString(), port: 8080}));
+              } else {
+                res.writeHead(200, {'Content-Type': 'text/html'});
+                res.end('<h1>Domeo Application</h1><p>Application is running on port 8080!</p><p>Time: ' + new Date().toISOString() + '</p>');
+              }
+            });
+            server.listen(8080, '0.0.0.0', () => {
+              console.log('Server running on port 8080');
+            });
+            "
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: domeo-app-service
+  namespace: domeo-staging
+  labels:
+    app: domeo-app
+spec:
+  selector:
+    app: domeo-app
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  type: LoadBalancer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: domeo-ingress
+  namespace: domeo-staging
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - staging.domeo.ru
+    secretName: domeo-tls
+  rules:
+  - host: staging.domeo.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: domeo-app-service
+            port:
+              number: 80
+

@@ -1,0 +1,652 @@
+openapi: 3.1.0
+info:
+  title: Domeo No-Code Calculators — Doors API
+  version: "1.0.0"
+  description: |
+    OpenAPI для пилота **Doors** (Next 14). Включает актуализированный контракт **медиа-аплоада**:
+    `POST /api/admin/media/upload` — multipart (`model` + `file[]`), сохранение как `public/assets/doors/encodeURIComponent(model).ext`.
+
+servers:
+  - url: http://localhost:3000
+    description: Dev (Next 14)
+  - url: https://example.dev.domeo.app
+    description: Remote Dev (CI remote-smoke)
+
+tags:
+  - name: Health
+  - name: Catalog
+  - name: Pricing
+  - name: Cart/Export
+  - name: Admin/Import
+  - name: Admin/Media
+  - name: Auth
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/admin/ping:
+    get:
+      tags: [Health]
+      operationId: adminPing
+      summary: Admin ping (JWT guard)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK (authorized)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PingResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/catalog/doors/options:
+    get:
+      tags: [Catalog]
+      operationId: getDoorsOptions
+      summary: Получить опции каталога (dependsOn-цепочка)
+      parameters:
+        - in: query
+          name: style
+          schema: { type: string, nullable: true }
+        - in: query
+          name: model
+          schema: { type: string, nullable: true }
+        - in: query
+          name: finish
+          schema: { type: string, nullable: true }
+        - in: query
+          name: color
+          schema: { type: string, nullable: true }
+        - in: query
+          name: type
+          schema: { type: string, nullable: true }
+        - in: query
+          name: width
+          schema: { type: string, nullable: true }
+        - in: query
+          name: height
+          schema: { type: string, nullable: true }
+      responses:
+        "200":
+          description: Опции с учетом выбранных фильтров
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoorsOptionsResponse"
+
+  /api/price/doors:
+    post:
+      tags: [Pricing]
+      operationId: priceDoors
+      summary: Расчёт цены (auto-pricing)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceRequest"
+      responses:
+        "200":
+          description: Цена рассчитана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceResponse"
+        "400":
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/cart/export/doors/kp:
+    post:
+      tags: [Cart/Export]
+      operationId: exportDoorsKP
+      summary: Экспорт КП (stub v1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Успешно (stub v1)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResponseKP"
+
+  /api/cart/export/doors/invoice:
+    post:
+      tags: [Cart/Export]
+      operationId: exportDoorsInvoice
+      summary: Экспорт Счёта (stub v1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Успешно (stub v1)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResponseInvoice"
+
+  /api/cart/export/doors/factory:
+    post:
+      tags: [Cart/Export]
+      operationId: exportDoorsFactory
+      summary: Экспорт заказа на фабрику (stub v1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Успешно (stub v1)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResponseFactory"
+
+  /api/export/order:
+    post:
+      tags: [Cart/Export]
+      operationId: exportOrderToFactory
+      summary: Экспорт заказа на фабрику из принятого КП
+      description: |
+        Экспортирует заказ на фабрику в формате XLSX на основе данных принятого КП.
+        Возвращает файл с корректными заголовками для скачивания.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportOrderRequest"
+      responses:
+        "200":
+          description: Файл экспорта успешно сгенерирован
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              description: Имя файла для скачивания
+              schema:
+                type: string
+                example: "attachment; filename=\"factory_order_kp-123_2025-01-15.xlsx\""
+        "400":
+          description: Ошибка валидации входных данных
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportError"
+        "404":
+          description: КП не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportError"
+        "500":
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportError"
+
+  /api/admin/import/doors:
+    post:
+      tags: [Admin/Import]
+      operationId: importDoorsCSV
+      summary: Импорт Doors (XLSX/CSV) с safe UPSERT
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  description: XLSX/CSV файл прайса
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        "200":
+          description: Импорт выполнен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportDoorsResponse"
+        "409":
+          description: Конфликт РРЦ — сформирован CSV-отчёт
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportConflictResponse"
+        "400":
+          description: Ошибка валидации входных данных
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/admin/media/upload:
+    post:
+      tags: [Admin/Media]
+      operationId: adminUploadMedia
+      summary: Загрузка фото (Doors) — прямой аплоад в public/assets/doors
+      description: |
+        Принимает `model` и `file[]` (один или несколько). Каждый файл сохраняется как
+        `public/assets/doors/{encodeURIComponent(model)}.{ext}`.
+        Поддерживаемые форматы: jpg, jpeg, png, webp.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                model:
+                  type: string
+                  description: Отображаемая «Модель» (используется для имени файла)
+                  example: PO Base 1/1
+                file:
+                  type: array
+                  description: Массив изображений
+                  items:
+                    type: string
+                    format: binary
+              required: [model, file]
+      responses:
+        "200":
+          description: Загружено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaUploadResponse"
+              examples:
+                ok:
+                  value:
+                    files:
+                      - filename: "door_base_1.jpg"
+                        url: "/assets/doors/door_base_1.jpg"
+        "400":
+          description: Ошибка валидации / формат файла не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      operationId: authRegister
+      summary: Регистрация пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthRegisterRequest"
+      responses:
+        "201":
+          description: Зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      operationId: authLogin
+      summary: Логин и получение JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthLoginRequest"
+      responses:
+        "200":
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Неверные учётные данные
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          nullable: true
+      required: [error]
+
+    HealthResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        ts:
+          type: string
+          format: date-time
+      required: [ok, ts]
+
+    PingResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        scope:
+          type: string
+          example: admin
+      required: [ok]
+
+    DoorsOptionsResponse:
+      type: object
+      properties:
+        style:
+          type: array
+          items: { type: string }
+        model:
+          type: array
+          items: { type: string }
+        finish:
+          type: array
+          items: { type: string }
+        color:
+          type: array
+          items: { type: string }
+        type:
+          type: array
+          items: { type: string }
+        width:
+          type: array
+          items: { type: string }
+        height:
+          type: array
+          items: { type: string }
+        kits:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              price_rrc: { type: number }
+        handles:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              price_rrc:
+                type: number
+                nullable: true
+              price_opt:
+                type: number
+                nullable: true
+              price_group_multiplier:
+                type: number
+                nullable: true
+
+    PriceRequest:
+      type: object
+      description: Параметры конфигуратора для расчёта
+      properties:
+        model: { type: string }
+        finish: { type: string }
+        color: { type: string }
+        type: { type: string }
+        width: { type: string }
+        height: { type: string }
+        hardware_kit_id:
+          type: string
+          nullable: true
+        handle_id:
+          type: string
+          nullable: true
+        qty:
+          type: integer
+          minimum: 1
+          default: 1
+      required: [model, finish, color, type, width, height]
+
+    PriceResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        base_price: { type: number }
+        handle_price:
+          description: Цена ручки (по правилу ручки из спецификаций)
+          type: number
+          nullable: true
+        total_price: { type: number }
+        currency: { type: string, default: RUB }
+      required: [ok, base_price, total_price]
+
+    ExportRequest:
+      type: object
+      description: |
+        **stub v1** — допускает произвольные поля. Будет ужесточён в v1.1 (ExportDoorsRequest).
+      additionalProperties: true
+
+    ExportResponseBase:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        type:
+          type: string
+          enum: [kp, invoice, factory]
+        received:
+          type: object
+          additionalProperties: true
+      required: [ok, type, received]
+
+    ExportResponseKP:
+      allOf:
+        - $ref: "#/components/schemas/ExportResponseBase"
+        - type: object
+          properties:
+            type:
+              type: string
+              const: kp
+
+    ExportResponseInvoice:
+      allOf:
+        - $ref: "#/components/schemas/ExportResponseBase"
+        - type: object
+          properties:
+            type:
+              type: string
+              const: invoice
+
+    ExportResponseFactory:
+      allOf:
+        - $ref: "#/components/schemas/ExportResponseBase"
+        - type: object
+          properties:
+            type:
+              type: string
+              const: factory
+
+    ImportDoorsResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        imported_rows: { type: integer }
+        conflicts_report:
+          type: string
+          nullable: true
+          description: Путь к CSV-отчёту, если были конфликты
+      required: [ok, imported_rows]
+
+    ImportConflictResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: false
+        report_csv:
+          type: string
+          example: /static/import_reports/doors/conflicts_2025-09-12.csv
+        message:
+          type: string
+          example: RRC conflicts detected
+      required: [ok, report_csv]
+
+    MediaUploadResponse:
+      type: object
+      properties:
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+                example: door_base_1.jpg
+              url:
+                type: string
+                example: /assets/doors/door_base_1.jpg
+            required: [filename, url]
+      required: [files]
+
+    AuthRegisterRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        name: { type: string }
+      required: [email, password]
+
+    AuthLoginRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+      required: [email, password]
+
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string, description: JWT Bearer }
+        user:
+          type: object
+          properties:
+            id: { type: string }
+            email: { type: string, format: email }
+            name: { type: string }
+      required: [token]
+
+    ExportOrderRequest:
+      type: object
+      properties:
+        kpId:
+          type: string
+          description: ID принятого КП
+          example: "kp-123"
+        format:
+          type: string
+          enum: ["xlsx"]
+          description: Формат экспорта
+          example: "xlsx"
+      required: [kpId, format]
+
+    ExportError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: string
+          description: Сообщение об ошибке
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          properties:
+            code:
+              type: string
+              description: Код ошибки
+            field:
+              type: string
+              description: Поле, в котором произошла ошибка
+            value:
+              description: Значение, вызвавшее ошибку
+      required: [success, error]

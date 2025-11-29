@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Коммерческое предложение №{{doc.number}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:0;padding:24px}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+    .brand h1{font-size:20px;margin:0 0 6px 0}
+    .brand .muted{color:#6b7280;font-size:12px}
+    .info{font-size:12px;line-height:1.4;text-align:right}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border:1px solid #e5e7eb;padding:8px;font-size:13px;vertical-align:top}
+    th{background:#f7f7f8;text-align:left}
+    .right{text-align:right}
+    .total{margin-top:12px;text-align:right;font-weight:700}
+    .footer{margin-top:16px;font-size:12px;color:#374151}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <h1>Коммерческое предложение</h1>
+      <div class="muted">№ {{doc.number}} от {{doc.date}}</div>
+      <div class="muted">Менеджер: {{manager.name}} • {{manager.email}}</div>
+    </div>
+    <div class="info">
+      <div><strong>Клиент:</strong> {{customer.name}}</div>
+      {{#if customer.inn}}<div>ИНН: {{customer.inn}}{{#if customer.kpp}} / КПП: {{customer.kpp}}{{/if}}</div>{{/if}}
+      {{#if customer.address}}<div>Адрес: {{customer.address}}</div>{{/if}}
+      {{#if customer.email}}<div>Email: {{customer.email}}</div>{{/if}}
+      {{#if customer.phone}}<div>Тел: {{customer.phone}}</div>{{/if}}
+    </div>
+  </div>
+
+  <table>
+    <tr>
+      <th>№</th>
+      <th>Артикул</th>
+      <th>Наименование</th>
+      <th class="right">Цена РРЦ, руб</th>
+      <th class="right">Кол-во</th>
+      <th class="right">Сумма, руб</th>
+    </tr>
+    {{{rowsHtml}}}
+  </table>
+
+  <div class="total">Итого: {{formatRub grandTotal}} ₽</div>
+
+  <div class="footer">
+    <div>Срок действия предложения: {{doc.validTill}}. Срок изготовления и поставки: {{doc.deliveryTerms}}.</div>
+    <div>Условия оплаты: {{doc.paymentTerms}}.</div>
+  </div>
+</body>
+</html>

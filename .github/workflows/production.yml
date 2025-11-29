@@ -1,0 +1,73 @@
+name: Deploy to Production
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build for production
+        run: npm run build:prod
+        
+      - name: Create backup
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+        run: |
+          echo "$PROD_SSH_KEY" > production_key
+          chmod 600 production_key
+          ssh -i production_key -o StrictHostKeyChecking=no ubuntu@$PROD_HOST "cd /opt/domeo && tar -czf production-backup-$(date +%Y%m%d_%H%M%S).tar.gz .next package.json package-lock.json prisma"
+          # Optional DB backup (if pg_dump is available and DATABASE_URL is set on the server)
+          ssh -i production_key -o StrictHostKeyChecking=no ubuntu@$PROD_HOST 'set -e; \
+            cd /opt/domeo; \
+            if command -v pg_dump >/dev/null 2>&1 && [ -n "${DATABASE_URL}" ]; then \
+              mkdir -p backups && pg_dump "${DATABASE_URL}" > backups/prod_$(date +%Y%m%d_%H%M%S).sql || echo "::warning::pg_dump failed (prod)"; \
+            else \
+              echo "::warning::Skip DB backup: pg_dump or DATABASE_URL not available"; \
+            fi'
+          rm production_key
+          
+      - name: Deploy to production server
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+        run: |
+          echo "$PROD_SSH_KEY" > production_key
+          chmod 600 production_key
+          ssh -i production_key -o StrictHostKeyChecking=no ubuntu@$PROD_HOST "cd /opt/domeo && git pull origin main"
+          # Install deps and build
+          ssh -i production_key -o StrictHostKeyChecking=no ubuntu@$PROD_HOST "cd /opt/domeo && npm ci --only=production && npm run build:prod"
+          # Apply Prisma migrations (idempotent) before restart
+          ssh -i production_key -o StrictHostKeyChecking=no ubuntu@$PROD_HOST "cd /opt/domeo && npx prisma migrate deploy || { echo '::error::Prisma migrate deploy failed'; exit 1; }"
+          # Restart app
+          ssh -i production_key -o StrictHostKeyChecking=no ubuntu@$PROD_HOST "pm2 restart domeo"
+          rm production_key
+          
+      - name: Health check
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+        run: |
+          sleep 30
+          curl -f http://$PROD_HOST:3000/api/health || exit 1
+          
+      - name: Notify success
+        if: success()
+        run: echo "🎉 Production deployment successful!"
+        
+      - name: Notify failure
+        if: failure()
+        run: echo "🚨 Production deployment failed! Check logs immediately!"

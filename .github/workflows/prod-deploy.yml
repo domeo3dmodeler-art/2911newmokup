@@ -1,0 +1,130 @@
+name: Prod Deploy
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - "README.md"
+      - "DEPLOY.md"
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: sha)"
+        required: false
+
+env:
+  # IMAGE_REPO can be provided as a secret (e.g. cr.yandex/<registry-id>/app)
+  CLUSTER_ID: cat9eenl393qj44riti4
+  NAMESPACE: prod
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tag
+        id: vars
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_SHA::12}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install YC CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: YC auth (service account JSON)
+        env:
+          # Prefer existing secret name YC_SA_KEY (JSON). Fallback to YC_SA_JSON if provided
+          YC_SA_JSON: ${{ secrets.YC_SA_KEY || secrets.YC_SA_JSON }}
+          YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          test -n "$YC_SA_JSON" || { echo "YC_SA_JSON secret is required"; exit 1; }
+          mkdir -p $RUNNER_TEMP
+          echo "$YC_SA_JSON" > $RUNNER_TEMP/sa.json
+          if [ -n "$YC_CLOUD_ID" ]; then yc config set cloud-id "$YC_CLOUD_ID"; fi
+          if [ -n "$YC_FOLDER_ID" ]; then yc config set folder-id "$YC_FOLDER_ID"; fi
+          export YC_SERVICE_ACCOUNT_KEY_FILE=$RUNNER_TEMP/sa.json
+          yc iam create-token >/dev/null
+          yc container registry configure-docker --registry-name default >/dev/null 2>&1 || true
+
+      - name: Docker login to YCR
+        run: |
+          yc iam create-token | docker login cr.yandex -u iam --password-stdin
+
+      - name: Build and push image
+        run: |
+          # If IMAGE_REPO secret exists, use it; else default to cr.yandex/crpuein3jvjccnafs2vc/app
+          IMAGE_REPO=${{ secrets.IMAGE_REPO }}
+          if [ -z "$IMAGE_REPO" ]; then IMAGE_REPO=cr.yandex/crpuein3jvjccnafs2vc/app; fi
+          IMAGE_REF=$IMAGE_REPO:${{ steps.vars.outputs.tag }}
+          docker build -t "$IMAGE_REF" .
+          docker push "$IMAGE_REF"
+          echo "IMAGE_REF=$IMAGE_REF" >> $GITHUB_ENV
+
+      - name: Upload image ref artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-ref
+          path: image-ref.txt
+        run: echo "$IMAGE_REF" > image-ref.txt
+
+  deploy:
+    needs: build-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install YC CLI and kubectl
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+          sudo apt-get update -y && sudo apt-get install -y kubectl
+
+      - name: YC auth (service account JSON)
+        env:
+          YC_SA_JSON: ${{ secrets.YC_SA_KEY || secrets.YC_SA_JSON }}
+          YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          mkdir -p $RUNNER_TEMP
+          echo "$YC_SA_JSON" > $RUNNER_TEMP/sa.json
+          if [ -n "$YC_CLOUD_ID" ]; then yc config set cloud-id "$YC_CLOUD_ID"; fi
+          if [ -n "$YC_FOLDER_ID" ]; then yc config set folder-id "$YC_FOLDER_ID"; fi
+          export YC_SERVICE_ACCOUNT_KEY_FILE=$RUNNER_TEMP/sa.json
+          yc iam create-token >/dev/null
+
+      - name: Get kubeconfig
+        run: |
+          yc managed-kubernetes cluster get-credentials --id $CLUSTER_ID --external --force
+          kubectl config use-context yc-domeo-prod
+          kubectl config set-context --current --namespace=$NAMESPACE
+          kubectl -n $NAMESPACE get nodes
+
+      - name: Set image and rollout
+        run: |
+          # Use the artifact/env from previous step
+          IMAGE_REPO=${{ secrets.IMAGE_REPO }}
+          if [ -z "$IMAGE_REPO" ]; then IMAGE_REPO=cr.yandex/crpuein3jvjccnafs2vc/app; fi
+          TAG=${GITHUB_SHA::12}
+          if [ -f image-ref.txt ]; then TAG=$(cut -d: -f2 image-ref.txt || echo $TAG); fi
+          IMAGE_REF=$IMAGE_REPO:$TAG
+          kubectl -n $NAMESPACE set image deployment/app app=$IMAGE_REF
+          kubectl -n $NAMESPACE rollout status deployment/app --timeout=180s
+          kubectl -n $NAMESPACE get deploy app
+
+

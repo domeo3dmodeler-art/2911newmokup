@@ -1,0 +1,136 @@
+// Улучшенная схема базы данных для документооборота
+// Добавляем недостающие связи и поля
+
+model Quote {
+  id           String    @id @default(cuid())
+  number       String    @unique
+  client_id    String
+  created_by   String
+  status       String    @default("DRAFT")
+  valid_until  DateTime?
+  subtotal     Float     @default(0)
+  tax_amount   Float     @default(0)
+  total_amount Float     @default(0)
+  currency     String    @default("RUB")
+  notes        String?
+  terms        String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  
+  // Связи
+  client       Client    @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  quote_items  QuoteItem[]
+  
+  // Новые связи для документооборота
+  orders       Order[]   @relation("QuoteToOrder")
+  invoices     Invoice[] @relation("QuoteToInvoice")
+  
+  @@map("quotes")
+}
+
+model Order {
+  id            String    @id @default(cuid())
+  number        String    @unique
+  quote_id      String?   // Связь с КП
+  client_id     String
+  created_by    String
+  status        String    @default("PENDING")
+  order_date    DateTime  @default(now())
+  delivery_date DateTime?
+  subtotal      Float     @default(0)
+  tax_amount    Float     @default(0)
+  total_amount  Float     @default(0)
+  currency      String    @default("RUB")
+  notes         String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  
+  // Связи
+  client        Client    @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  order_items   OrderItem[]
+  
+  // Новые связи для документооборота
+  quote         Quote?    @relation("QuoteToOrder", fields: [quote_id], references: [id])
+  invoices      Invoice[] @relation("OrderToInvoice")
+  supplier_orders SupplierOrder[] @relation("OrderToSupplierOrder")
+  
+  @@map("orders")
+}
+
+model Invoice {
+  id           String    @id @default(cuid())
+  number       String    @unique
+  quote_id     String?   // Связь с КП (новое поле)
+  order_id     String?   // Связь с Заказом
+  client_id    String
+  created_by   String
+  status       String    @default("DRAFT")
+  invoice_date DateTime  @default(now())
+  due_date     DateTime?
+  subtotal     Float     @default(0)
+  tax_amount   Float     @default(0)
+  total_amount Float     @default(0)
+  currency     String    @default("RUB")
+  notes        String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  
+  // Связи
+  client         Client      @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  invoice_items  InvoiceItem[]
+  
+  // Новые связи для документооборота
+  quote          Quote?   @relation("QuoteToInvoice", fields: [quote_id], references: [id])
+  order          Order?   @relation("OrderToInvoice", fields: [order_id], references: [id])
+  
+  @@map("invoices")
+}
+
+model SupplierOrder {
+  id             String    @id @default(cuid())
+  order_id       String    // Связь с Заказом (обязательная)
+  executor_id    String
+  supplier_name  String
+  supplier_email String?
+  supplier_phone String?
+  status         String    @default("PENDING")
+  order_date     DateTime  @default(now())
+  expected_date  DateTime?
+  notes          String?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  
+  // Новые связи для документооборота
+  order          Order     @relation("OrderToSupplierOrder", fields: [order_id], references: [id], onDelete: Cascade)
+  
+  @@map("supplier_orders")
+}
+
+// Новая модель для истории изменений документов
+model DocumentHistory {
+  id          String   @id @default(cuid())
+  document_type String // 'quote', 'order', 'invoice', 'supplier_order'
+  document_id String
+  action      String   // 'created', 'updated', 'status_changed', 'sent', 'accepted', etc.
+  old_value   String?  // JSON с предыдущими значениями
+  new_value   String?  // JSON с новыми значениями
+  user_id     String
+  notes       String?
+  created_at  DateTime @default(now())
+  
+  @@map("document_history")
+}
+
+// Новая модель для шаблонов документов
+model DocumentTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // 'quote', 'invoice', 'order', 'supplier_order'
+  template_data String // JSON с данными шаблона
+  is_default  Boolean  @default(false)
+  created_by  String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  
+  @@map("document_templates")
+}

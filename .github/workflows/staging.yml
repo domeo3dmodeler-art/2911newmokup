@@ -1,0 +1,64 @@
+name: Deploy to Staging
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build for staging
+        run: npm run build:staging
+        
+      - name: Deploy to staging server
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          echo "$STAGING_SSH_KEY" > staging_key
+          chmod 600 staging_key
+          ssh -i staging_key -o StrictHostKeyChecking=no ubuntu@$STAGING_HOST "cd /opt/domeo-staging && git pull origin develop"
+          # Install deps and build
+          ssh -i staging_key -o StrictHostKeyChecking=no ubuntu@$STAGING_HOST "cd /opt/domeo-staging && npm ci --only=production && npm run build:staging"
+          # Optional DB backup (if pg_dump is available and DATABASE_URL is set on the server)
+          ssh -i staging_key -o StrictHostKeyChecking=no ubuntu@$STAGING_HOST 'set -e; \
+            if command -v pg_dump >/dev/null 2>&1 && [ -n "${DATABASE_URL}" ]; then \
+              mkdir -p backups && pg_dump "${DATABASE_URL}" > backups/staging_$(date +%Y%m%d_%H%M%S).sql || echo "::warning::pg_dump failed (staging)"; \
+            else \
+              echo "::warning::Skip DB backup: pg_dump or DATABASE_URL not available"; \
+            fi'
+          # Apply Prisma migrations (idempotent) before restart
+          ssh -i staging_key -o StrictHostKeyChecking=no ubuntu@$STAGING_HOST "cd /opt/domeo-staging && npx prisma migrate deploy || { echo '::error::Prisma migrate deploy failed'; exit 1; }"
+          # Restart app
+          ssh -i staging_key -o StrictHostKeyChecking=no ubuntu@$STAGING_HOST "pm2 restart domeo-staging"
+          rm staging_key
+          
+      - name: Health check
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+        run: |
+          sleep 30
+          curl -f http://$STAGING_HOST:3001/api/health || exit 1
+          
+      - name: Notify success
+        if: success()
+        run: echo "✅ Staging deployment successful!"
+        
+      - name: Notify failure
+        if: failure()
+        run: echo "❌ Staging deployment failed!"

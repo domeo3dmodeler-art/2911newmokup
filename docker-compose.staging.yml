@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Staging Database
+  staging-postgres:
+    image: postgres:15-alpine
+    container_name: domeo-staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: domeo_staging
+      POSTGRES_USER: staging_user
+      POSTGRES_PASSWORD: staging_password
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - staging-network
+
+  # Staging Redis
+  staging-redis:
+    image: redis:7-alpine
+    container_name: domeo-staging-redis
+    restart: unless-stopped
+    command: redis-server --requirepass staging_redis_password
+    volumes:
+      - staging_redis_data:/data
+    ports:
+      - "6380:6379"
+    networks:
+      - staging-network
+
+  # Staging App
+  staging-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.staging
+    container_name: domeo-staging-app
+    restart: unless-stopped
+    user: root
+    command: sh -c "mkdir -p /app/public/uploads /app/uploads /app/logs && chown -R nextjs:nodejs /app/public/uploads /app/uploads /app/logs && su -s /bin/sh nextjs -c 'cd /app && node server.js'"
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://staging_user:staging_password@staging-postgres:5432/domeo_staging
+      REDIS_URL: redis://:staging_redis_password@staging-redis:6379
+      NEXTAUTH_SECRET: staging_secret_key_minimum_32_characters
+      NEXTAUTH_URL: https://staging.yourdomain.com
+      JWT_SECRET: staging_jwt_secret_key_minimum_32_characters
+    volumes:
+      - staging_uploads:/app/public/uploads
+      - staging_logs:/app/logs
+    ports:
+      - "3001:3001"
+    networks:
+      - staging-network
+    depends_on:
+      - staging-postgres
+      - staging-redis
+
+volumes:
+  staging_postgres_data:
+    driver: local
+  staging_redis_data:
+    driver: local
+  staging_uploads:
+    driver: local
+  staging_logs:
+    driver: local
+
+networks:
+  staging-network:
+    driver: bridge

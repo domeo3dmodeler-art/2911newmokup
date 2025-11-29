@@ -1,0 +1,59 @@
+# Cursor ignore file
+# Files and directories to exclude from Cursor indexing
+
+# Dependencies
+node_modules/
+
+# Build outputs
+.next/
+out/
+build/
+dist/
+
+# Cache files
+*.cache
+.cache/
+tsconfig.tsbuildinfo
+
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files (large SQL dumps)
+backup/
+*.dump
+*.sql.gz
+*.tar.gz
+
+# Test results
+test-results/
+playwright-report/
+coverage/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Large data files
+*.xlsx
+*.xls
+DB_*.xlsx
+
+# Environment files
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+

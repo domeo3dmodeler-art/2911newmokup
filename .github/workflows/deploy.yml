@@ -1,0 +1,154 @@
+name: Deploy to Yandex Cloud
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  NODE_VERSION: '18'
+  REGISTRY: cr.yandex
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: app/package-lock.json
+        
+    - name: Install dependencies
+      working-directory: ./app
+      run: npm ci
+      
+    - name: Run linting
+      working-directory: ./app
+      run: npm run lint
+      
+    - name: Run type checking
+      working-directory: ./app
+      run: npm run build
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: app/package-lock.json
+        
+    - name: Install dependencies
+      working-directory: ./app
+      run: npm ci
+      
+    - name: Build application
+      working-directory: ./app
+      run: npm run build
+      
+    - name: Configure Docker to use gcloud as a credential helper
+      run: |
+        echo '${{ secrets.YC_SA_KEY }}' | docker login --username json --password-stdin cr.yandex
+        
+    - name: Build and push Docker image
+      working-directory: ./app
+      run: |
+        docker build -f Dockerfile.yandex -t ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+        docker push ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker tag ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_NAME }}:latest
+        docker push ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Yandex Cloud CLI
+      uses: yandex-cloud/yc-cli-action@v1
+      with:
+        yc-sa-json-credentials: ${{ secrets.YC_SA_KEY }}
+        
+    - name: Deploy to Yandex Cloud
+      run: |
+        # Получаем информацию о Compute Instance
+        INSTANCE_ID=$(yc compute instance list --format json | jq -r '.[0].id')
+        
+        # Создаем скрипт развертывания
+        cat > deploy.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 Обновление приложения..."
+        
+        # Остановка старого контейнера
+        docker stop domeo-doors-app || true
+        docker rm domeo-doors-app || true
+        
+        # Удаление старого образа
+        docker rmi cr.yandex/$YC_REGISTRY_ID/$IMAGE_NAME:latest || true
+        
+        # Авторизация в Container Registry
+        echo "$YC_SA_KEY" | docker login --username json --password-stdin cr.yandex
+        
+        # Загрузка нового образа
+        docker pull cr.yandex/$YC_REGISTRY_ID/$IMAGE_NAME:latest
+        
+        # Запуск нового контейнера
+        docker run -d \
+          --name domeo-doors-app \
+          --restart unless-stopped \
+          -p 3000:3000 \
+          -e DATABASE_URL="$DATABASE_URL" \
+          -e JWT_SECRET="$JWT_SECRET" \
+          -e NODE_ENV=production \
+          -e PORT=3000 \
+          -e NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
+          cr.yandex/$YC_REGISTRY_ID/$IMAGE_NAME:latest
+        
+        echo "✅ Приложение обновлено успешно!"
+        EOF
+        
+        # Передаем переменные окружения
+        export YC_REGISTRY_ID="${{ secrets.YC_REGISTRY_ID }}"
+        export IMAGE_NAME="${{ env.IMAGE_NAME }}"
+        export YC_SA_KEY="${{ secrets.YC_SA_KEY }}"
+        export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+        export JWT_SECRET="${{ secrets.JWT_SECRET }}"
+        export NEXT_PUBLIC_APP_URL="${{ secrets.NEXT_PUBLIC_APP_URL }}"
+        
+        # Выполняем развертывание на сервере
+        yc compute instance execute $INSTANCE_ID --command "bash -s" < deploy.sh
+        
+    - name: Health check
+      run: |
+        # Ждем запуска приложения
+        sleep 30
+        
+        # Получаем внешний IP сервера
+        EXTERNAL_IP=$(yc compute instance list --format json | jq -r '.[0].network_interfaces[0].primary_v4_address.one_to_one_nat.address')
+        
+        # Проверяем здоровье приложения
+        curl -f http://$EXTERNAL_IP:3000/api/health || exit 1
+        
+        echo "✅ Приложение успешно развернуто и работает!"
+        echo "🌐 URL: http://$EXTERNAL_IP:3000"

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Создание пользователя</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .form-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .error { color: red; }
+        .success { color: green; }
+        input, select { width: 300px; padding: 5px; margin: 5px 0; display: block; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>👤 Создание пользователя</h1>
+    
+    <div class="form-section">
+        <h2>Создать администратора</h2>
+        <input type="email" id="email" placeholder="Email" value="admin@domeo.ru">
+        <input type="password" id="password" placeholder="Пароль" value="admin123">
+        <input type="text" id="firstName" placeholder="Имя" value="Администратор">
+        <input type="text" id="lastName" placeholder="Фамилия" value="Системы">
+        <input type="text" id="middleName" placeholder="Отчество" value="Главный">
+        <select id="role">
+            <option value="admin">👑 Администратор</option>
+            <option value="complectator">📋 Комплектатор</option>
+            <option value="executor">⚙️ Исполнитель</option>
+        </select>
+        <button onclick="createUser()">Создать пользователя</button>
+        <div id="result" class="result"></div>
+    </div>
+
+    <div class="form-section">
+        <h2>Тест входа</h2>
+        <input type="email" id="loginEmail" placeholder="Email" value="admin@domeo.ru">
+        <input type="password" id="loginPassword" placeholder="Пароль" value="admin123">
+        <button onclick="loginUser()">Войти</button>
+        <div id="loginResult" class="result"></div>
+    </div>
+
+    <script>
+        async function createUser() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const firstName = document.getElementById('firstName').value;
+            const lastName = document.getElementById('lastName').value;
+            const middleName = document.getElementById('middleName').value;
+            const role = document.getElementById('role').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.innerHTML = 'Создание пользователя...';
+            
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        email, 
+                        password, 
+                        firstName, 
+                        lastName, 
+                        middleName, 
+                        role 
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    resultDiv.innerHTML = `<div class="success">✅ Пользователь создан!</div>`;
+                    resultDiv.innerHTML += `<div>Email: ${data.user.email}</div>`;
+                    resultDiv.innerHTML += `<div>Роль: ${data.user.role}</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ Ошибка: ${data.error || 'Неизвестная ошибка'}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ Ошибка: ${error.message}</div>`;
+            }
+        }
+
+        async function loginUser() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const resultDiv = document.getElementById('loginResult');
+            
+            resultDiv.innerHTML = 'Вход в систему...';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    resultDiv.innerHTML = `<div class="success">✅ Вход успешен!</div>`;
+                    resultDiv.innerHTML += `<div>Пользователь: ${data.user.firstName} ${data.user.lastName}</div>`;
+                    resultDiv.innerHTML += `<div>Роль: ${data.user.role}</div>`;
+                    resultDiv.innerHTML += `<div>Токен: ${data.token.substring(0, 20)}...</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ Ошибка: ${data.error || 'Неизвестная ошибка'}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ Ошибка: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+

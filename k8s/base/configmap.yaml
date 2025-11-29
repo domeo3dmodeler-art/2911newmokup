@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  labels:
+    app.kubernetes.io/name: app
+data:
+  # Add non-secret configuration values here
+  APP_LOG_LEVEL: "info"
+

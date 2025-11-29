@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # Staging Database
+  staging-postgres:
+    image: postgres:15-alpine
+    container_name: domeo-staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: domeo_staging
+      POSTGRES_USER: staging_user
+      POSTGRES_PASSWORD: staging_password
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - staging-network
+
+  # Staging Redis
+  staging-redis:
+    image: redis:7-alpine
+    container_name: domeo-staging-redis
+    restart: unless-stopped
+    command: redis-server --requirepass staging_redis_password
+    volumes:
+      - staging_redis_data:/data
+    ports:
+      - "6380:6379"
+    networks:
+      - staging-network
+
+  # Staging App (Hot Reload Mode)
+  staging-app:
+    # Используем базовый образ Node.js вместо сборки
+    image: node:20-alpine
+    container_name: domeo-staging-app
+    restart: unless-stopped
+    working_dir: /app
+    # Монтируем весь проект для hot reload
+    volumes:
+      # Весь проект (без :ro чтобы Next.js мог создавать .next)
+      - .:/app
+      # node_modules (volume для сохранения между перезапусками)
+      - staging_node_modules:/app/node_modules
+      # Uploads и логи (read-write)
+      - staging_uploads:/app/public/uploads
+      - staging_logs:/app/logs
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://staging_user:staging_password@staging-postgres:5432/domeo_staging
+      REDIS_URL: redis://:staging_redis_password@staging-redis:6379
+      NEXTAUTH_SECRET: staging_secret_key_minimum_32_characters
+      NEXTAUTH_URL: http://130.193.40.35:3001
+      JWT_SECRET: staging_jwt_secret_key_minimum_32_characters
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: 1
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+    ports:
+      - "3001:3001"
+    networks:
+      - staging-network
+    depends_on:
+      - staging-postgres
+      - staging-redis
+    # Команда запуска в dev режиме для hot reload
+    command: >
+      sh -c "
+        if ! command -v chromium-browser >/dev/null 2>&1; then
+          echo '📦 Установка Chromium...' &&
+          apk add --no-cache chromium chromium-chromedriver
+        fi &&
+        if [ ! -d node_modules ]; then
+          echo '📦 Установка зависимостей...' &&
+          npm install --legacy-peer-deps
+        fi &&
+        if [ ! -d node_modules/.prisma ]; then
+          echo '🔧 Генерация Prisma Client...' &&
+          npx prisma generate
+        fi &&
+        if [ -d .next ]; then
+          echo '🧹 Очистка старой директории .next...' &&
+          rm -rf .next
+        fi &&
+        mkdir -p .next &&
+        echo '{}' > .next/required-server-files.json &&
+        echo '🚀 Запуск dev сервера на порту 3001...' &&
+        npm run dev -- -p 3001 -H 0.0.0.0
+      "
+
+volumes:
+  staging_postgres_data:
+    driver: local
+  staging_redis_data:
+    driver: local
+  staging_uploads:
+    driver: local
+  staging_logs:
+    driver: local
+  staging_node_modules:
+    driver: local
+  staging_next_cache:
+    driver: local
+
+networks:
+  staging-network:
+    driver: bridge
+

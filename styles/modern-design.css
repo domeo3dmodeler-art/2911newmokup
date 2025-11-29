@@ -1,0 +1,329 @@
+/* Современная система дизайна на основе стиля изображения */
+
+/* Сброс стилей и базовые настройки */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333333;
+  background-color: #FFFFFF;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Типографика */
+h1, h2, h3, h4, h5, h6 {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600;
+  color: #333333;
+  line-height: 1.25;
+  margin: 0;
+}
+
+h1 { font-size: 30px; }
+h2 { font-size: 24px; }
+h3 { font-size: 20px; }
+h4 { font-size: 18px; }
+h5 { font-size: 16px; }
+h6 { font-size: 14px; }
+
+p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333333;
+  margin: 0;
+}
+
+/* Кнопки */
+.modern-button {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 3px;
+  padding: 8px 24px;
+  cursor: pointer;
+  transition: all 150ms ease-in-out;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.modern-button-primary {
+  background-color: #000000;
+  color: #FFFFFF;
+}
+
+.modern-button-primary:hover {
+  background-color: #333333;
+}
+
+.modern-button-secondary {
+  background-color: #6C757D;
+  color: #FFFFFF;
+}
+
+.modern-button-secondary:hover {
+  background-color: #5A6268;
+}
+
+.modern-button-light {
+  background-color: #F8F9FA;
+  color: #333333;
+  border: 1px solid #E0E0E0;
+}
+
+.modern-button-light:hover {
+  background-color: #E9ECEF;
+}
+
+.modern-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Поля ввода */
+.modern-input,
+.modern-select,
+.modern-textarea {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  color: #333333;
+  background-color: #FFFFFF;
+  border: 1px solid #E0E0E0;
+  border-radius: 3px;
+  padding: 8px 16px;
+  transition: border-color 150ms ease-in-out;
+  width: 100%;
+}
+
+.modern-input:focus,
+.modern-select:focus,
+.modern-textarea:focus {
+  outline: none;
+  border-color: #999999;
+}
+
+.modern-input::placeholder,
+.modern-textarea::placeholder {
+  color: #999999;
+}
+
+/* Карточки */
+.modern-card {
+  background-color: #FFFFFF;
+  border: 1px solid #E0E0E0;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.modern-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Секции */
+.modern-section {
+  background-color: #FFFFFF;
+  padding: 24px;
+}
+
+.modern-section + .modern-section {
+  border-top: 1px solid #E0E0E0;
+}
+
+/* Сетка */
+.modern-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.modern-grid-1 { grid-template-columns: 1fr; }
+.modern-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.modern-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.modern-grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+@media (max-width: 768px) {
+  .modern-grid-2,
+  .modern-grid-3,
+  .modern-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Выбор опций (как на изображении) */
+.modern-option-selector {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+}
+
+.modern-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid #E0E0E0;
+  border-radius: 8px;
+  background-color: #FFFFFF;
+  cursor: pointer;
+  transition: all 150ms ease-in-out;
+  text-align: center;
+}
+
+.modern-option:hover {
+  background-color: #F8F9FA;
+}
+
+.modern-option.selected {
+  background-color: #E9ECEF;
+  border-color: #CCCCCC;
+}
+
+.modern-option-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modern-option-icon img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.modern-option-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #333333;
+}
+
+/* Заголовки секций */
+.modern-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333333;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #E0E0E0;
+}
+
+/* Списки параметров */
+.modern-parameter-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.modern-parameter-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #F0F0F0;
+}
+
+.modern-parameter-item:last-child {
+  border-bottom: none;
+}
+
+.modern-parameter-label {
+  font-size: 14px;
+  color: #333333;
+}
+
+.modern-parameter-value {
+  font-size: 14px;
+  color: #666666;
+  font-weight: 500;
+}
+
+/* Корзина */
+.modern-cart {
+  background-color: #FFFFFF;
+  border: 1px solid #E0E0E0;
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.modern-cart-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #F0F0F0;
+}
+
+.modern-cart-item:last-child {
+  border-bottom: none;
+}
+
+.modern-cart-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-top: 1px solid #E0E0E0;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .modern-section {
+    padding: 16px;
+  }
+  
+  .modern-card {
+    padding: 16px;
+  }
+  
+  .modern-button {
+    padding: 12px 20px;
+    font-size: 16px;
+  }
+  
+  .modern-option-selector {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Утилиты */
+.modern-text-center { text-align: center; }
+.modern-text-left { text-align: left; }
+.modern-text-right { text-align: right; }
+
+.modern-mb-1 { margin-bottom: 4px; }
+.modern-mb-2 { margin-bottom: 8px; }
+.modern-mb-3 { margin-bottom: 16px; }
+.modern-mb-4 { margin-bottom: 24px; }
+.modern-mb-5 { margin-bottom: 32px; }
+
+.modern-mt-1 { margin-top: 4px; }
+.modern-mt-2 { margin-top: 8px; }
+.modern-mt-3 { margin-top: 16px; }
+.modern-mt-4 { margin-top: 24px; }
+.modern-mt-5 { margin-top: 32px; }
+
+.modern-p-1 { padding: 4px; }
+.modern-p-2 { padding: 8px; }
+.modern-p-3 { padding: 16px; }
+.modern-p-4 { padding: 24px; }
+.modern-p-5 { padding: 32px; }
+
+.modern-hidden { display: none; }
+.modern-block { display: block; }
+.modern-inline-block { display: inline-block; }
+.modern-flex { display: flex; }
+.modern-grid { display: grid; }
+

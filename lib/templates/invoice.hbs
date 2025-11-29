@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Счёт №{{doc.number}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:0;padding:24px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .box{border:1px solid #e5e7eb;padding:12px;border-radius:8px}
+    .box h3{margin:0 0 8px 0;font-size:14px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border:1px solid #e5e7eb;padding:8px;font-size:13px;vertical-align:top}
+    th{background:#f7f7f8;text-align:left}
+    .right{text-align:right}
+    .total{margin-top:12px;text-align:right;font-weight:700}
+    .muted{color:#6b7280;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="grid">
+    <div class="box">
+      <h3>Поставщик</h3>
+      <div><strong>{{company.name}}</strong></div>
+      <div>ИНН {{company.inn}}{{#if company.kpp}} / КПП {{company.kpp}}{{/if}}</div>
+      <div>{{company.address}}</div>
+      <div>Банк: {{company.bank.name}}</div>
+      <div>БИК: {{company.bank.bik}} • Кор/счёт: {{company.bank.cor}}</div>
+      <div>Расч/счёт: {{company.bank.acc}}</div>
+    </div>
+    <div class="box">
+      <h3>Покупатель</h3>
+      <div><strong>{{customer.name}}</strong></div>
+      {{#if customer.inn}}<div>ИНН {{customer.inn}}{{#if customer.kpp}} / КПП {{customer.kpp}}{{/if}}</div>{{/if}}
+      {{#if customer.address}}<div>{{customer.address}}</div>{{/if}}
+    </div>
+  </div>
+
+  <div class="muted" style="margin-top:12px">Счёт № {{doc.number}} от {{doc.date}}</div>
+
+  <table>
+    <tr>
+      <th>№</th>
+      <th>Артикул</th>
+      <th>Наименование</th>
+      <th class="right">Цена, руб</th>
+      <th class="right">Кол-во</th>
+      <th class="right">Сумма, руб</th>
+    </tr>
+    {{{rowsHtml}}}
+  </table>
+
+  <div class="total">Итого к оплате: {{formatRub grandTotal}} ₽</div>
+  <div class="muted">Сумма прописью: {{totalInWords}}</div>
+</body>
+</html>

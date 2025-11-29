@@ -1,0 +1,40 @@
+
+model Category {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  name       String
+  attributes CategoryAttribute[]
+  products   GenericProduct[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CategoryAttribute {
+  id         String   @id @default(cuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  key        String
+  label      String
+  type       String
+  required   Boolean  @default(false)
+  enumValues String[]
+  minNumber  Float?
+  maxNumber  Float?
+  regex      String?
+  unit       String?
+  order      Int      @default(0)
+}
+
+model GenericProduct {
+  id         String   @id @default(cuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  sku        String   @unique
+  series     String?
+  base_price Decimal
+  currency   String
+  valid_from DateTime @default(now())
+  data       Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
