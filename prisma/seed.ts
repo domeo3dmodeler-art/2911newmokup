@@ -1,22 +1,25 @@
 // prisma/seed.ts
-// Seed файл для создания реальных пользователей
+// Seed файл для создания тестовых пользователей
+// Пароль для всех тестовых пользователей: Test2025!
 
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+const TEST_PASSWORD = 'Test2025!';
+
 async function main() {
   try {
-    console.log('🌱 Создаем реальных пользователей...');
+    console.log('🌱 Создаем тестовых пользователей...');
 
     // Создаем администратора
     console.log('👑 Создаем администратора...');
-    const adminPasswordHash = await bcrypt.hash('admin123', 12);
-    
+    const adminPasswordHash = await bcrypt.hash(TEST_PASSWORD, 12);
+
     const admin = await prisma.user.upsert({
       where: { email: 'admin@domeo.ru' },
-      update: {},
+      update: { password_hash: adminPasswordHash },
       create: {
         email: 'admin@domeo.ru',
         password_hash: adminPasswordHash,
@@ -32,11 +35,11 @@ async function main() {
 
     // Создаем комплектатора
     console.log('📋 Создаем комплектатора...');
-    const complectatorPasswordHash = await bcrypt.hash('complectator123', 12);
-    
+    const complectatorPasswordHash = await bcrypt.hash(TEST_PASSWORD, 12);
+
     const complectator = await prisma.user.upsert({
       where: { email: 'complectator@domeo.ru' },
-      update: {},
+      update: { password_hash: complectatorPasswordHash },
       create: {
         email: 'complectator@domeo.ru',
         password_hash: complectatorPasswordHash,
@@ -52,11 +55,11 @@ async function main() {
 
     // Создаем исполнителя
     console.log('⚙️ Создаем исполнителя...');
-    const executorPasswordHash = await bcrypt.hash('executor123', 12);
-    
+    const executorPasswordHash = await bcrypt.hash(TEST_PASSWORD, 12);
+
     const executor = await prisma.user.upsert({
       where: { email: 'executor@domeo.ru' },
-      update: {},
+      update: { password_hash: executorPasswordHash },
       create: {
         email: 'executor@domeo.ru',
         password_hash: executorPasswordHash,
@@ -70,12 +73,12 @@ async function main() {
 
     console.log('✅ Исполнитель создан:', executor.email);
 
-    console.log('🎉 Пользователи успешно созданы!');
+    console.log('🎉 Тестовые пользователи созданы!');
     console.log('');
-    console.log('📋 Данные для входа:');
-    console.log('👑 Администратор: admin@domeo.ru / admin123');
-    console.log('📋 Комплектатор: complectator@domeo.ru / complectator123');
-    console.log('⚙️ Исполнитель: executor@domeo.ru / executor123');
+    console.log('📋 Данные для входа (пароль для всех: ' + TEST_PASSWORD + '):');
+    console.log('👑 Администратор: admin@domeo.ru');
+    console.log('📋 Комплектатор: complectator@domeo.ru');
+    console.log('⚙️ Исполнитель: executor@domeo.ru');
 
   } catch (error) {
     console.error('❌ Ошибка при создании пользователей:', error);

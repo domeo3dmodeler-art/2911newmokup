@@ -20,7 +20,12 @@ const nextConfig = {
     minimumCacheTTL: 60,
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
-    domains: ['storage.yandexcloud.net'],
+    domains: [
+      'storage.yandexcloud.net',
+      'disk.360.yandex.ru',
+      'downloader.disk.yandex.ru',
+      'get.disk.yandex.ru',
+    ],
   },
   
   // Оптимизация сборки

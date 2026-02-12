@@ -60,6 +60,33 @@ export async function getPropertyPhotos(
   }
 }
 
+/** Ключ свойства для фото/цветов из листа "Цвет" (формат propertyValue: "Название модели|Тип покрытия|Цвет/отделка") */
+export const DOOR_COLOR_PROPERTY = 'Domeo_Модель_Цвет';
+
+/**
+ * Получает фото по префиксу значения свойства (для списка цветов/покрытий по модели)
+ */
+export async function getPropertyPhotosByValuePrefix(
+  categoryId: string,
+  propertyName: string,
+  valuePrefix: string
+): Promise<PropertyPhotoInfo[]> {
+  try {
+    const photos = await prisma.propertyPhoto.findMany({
+      where: {
+        categoryId,
+        propertyName,
+        propertyValue: { startsWith: valuePrefix }
+      },
+      orderBy: [{ propertyValue: 'asc' }, { photoType: 'asc' }]
+    });
+    return photos;
+  } catch (error) {
+    logger.error('Ошибка getPropertyPhotosByValuePrefix', 'lib/property-photos', error instanceof Error ? { error: error.message } : { error: String(error) });
+    return [];
+  }
+}
+
 /**
  * Структурирует фото в обложку и галерею
  */
@@ -220,6 +247,49 @@ export async function deletePropertyPhotos(
   } catch (error) {
     logger.error('Ошибка удаления фото свойства', 'lib/property-photos', error instanceof Error ? { error: error.message, stack: error.stack } : { error: String(error) });
     return 0;
+  }
+}
+
+/**
+ * Все фото по свойству (например Domeo_Модель_Цвет), сгруппированные по (тип покрытия, цвет).
+ * propertyValue в БД: "Название модели|Тип покрытия|Цвет/отделка".
+ * Возвращает: по каждому coatingType — массив { colorName, photos }.
+ * Нужно для конфигуратора, когда названия моделей в листе "Цвет" не совпадают с "Цены базовые".
+ */
+export async function getPropertyPhotosGroupedByCoatingAndColor(
+  categoryId: string,
+  propertyName: string
+): Promise<Map<string, Array<{ colorName: string; photos: PropertyPhotoInfo[] }>>> {
+  try {
+    const photos = await prisma.propertyPhoto.findMany({
+      where: {
+        categoryId,
+        propertyName
+      },
+      orderBy: [{ propertyValue: 'asc' }, { photoType: 'asc' }]
+    });
+
+    const byCoating = new Map<string, Map<string, PropertyPhotoInfo[]>>();
+    for (const p of photos) {
+      const parts = p.propertyValue.split('|');
+      const coatingType = (parts[1] ?? '').trim();
+      const colorName = (parts[2] ?? '').trim();
+      if (!coatingType && !colorName) continue;
+      if (!byCoating.has(coatingType)) byCoating.set(coatingType, new Map());
+      const byColor = byCoating.get(coatingType)!;
+      if (!byColor.has(colorName)) byColor.set(colorName, []);
+      byColor.get(colorName)!.push(p);
+    }
+
+    const result = new Map<string, Array<{ colorName: string; photos: PropertyPhotoInfo[] }>>();
+    byCoating.forEach((byColor, coatingType) => {
+      const list = Array.from(byColor.entries()).map(([colorName, photos]) => ({ colorName, photos }));
+      result.set(coatingType, list);
+    });
+    return result;
+  } catch (error) {
+    logger.error('Ошибка getPropertyPhotosGroupedByCoatingAndColor', 'lib/property-photos', error instanceof Error ? { error: error.message } : { error: String(error) });
+    return new Map();
   }
 }
 

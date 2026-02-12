@@ -14,12 +14,10 @@ import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logging/logger';
 import * as XLSX from 'xlsx';
 
-const DOORS_CATEGORY_ID = 'cmg50xcgs001cv7mn0tdyk1wo'; // ID категории "Межкомнатные двери"
-const HANDLES_CATEGORY_ID = 'cmg50xchb001wv7mnbzhw5y9r'; // ID категории "Ручки"
-const HARDWARE_KITS_CATEGORY_ID = 'cmg50xchh0024v7mn2b5ri4qy'; // ID категории "Комплекты фурнитуры"
-// TODO: Найти или создать ID категории для ограничителей в дереве каталога
-// Пока оставляем пустым - будет определено при создании категории
-const LIMITERS_CATEGORY_ID = ''; // ID категории "Ограничители" - нужно создать в дереве каталога
+const DOORS_CATEGORY_ID = 'cmlg8vri200037kf4bec1l5bx'; // ID категории "Межкомнатные двери"
+const HANDLES_CATEGORY_ID = 'cmlg8vrie00097kf4fhrxoye6'; // ID категории "Ручки и завертки"
+const HARDWARE_KITS_CATEGORY_ID = 'cmlg8vrib00077kf4k6psqj6j'; // ID категории "Комплекты фурнитуры"
+const LIMITERS_CATEGORY_ID = 'cmlg8vrij000b7kf4smy76yzv'; // ID категории "Ограничители"
 
 export interface ImportResult {
   success: boolean;
