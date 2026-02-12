@@ -151,6 +151,7 @@ export function ModernPhotoGallery({ photos, productName, hasGallery, onToggleSi
             <img
               src={(() => {
                 const photo = allPhotos[currentIndex];
+                if (photo.startsWith('http://') || photo.startsWith('https://')) return photo;
                 let imageUrl: string;
                 if (photo.startsWith('/uploads/')) {
                   imageUrl = `/api${photo}`;

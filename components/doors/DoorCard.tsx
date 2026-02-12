@@ -22,8 +22,9 @@ function DoorCardComponent({ item, selected, onSelect }: DoorCardProps) {
     if (!item.photo || typeof item.photo !== 'string') {
       return null;
     }
-    
-    // Если фото начинается с /uploads/, используем как есть
+    if (item.photo.startsWith('http://') || item.photo.startsWith('https://')) {
+      return item.photo;
+    }
     if (item.photo.startsWith('/uploads/')) {
       return `/api${item.photo}`;
     } else if (item.photo.startsWith('/uploadsproducts')) {
@@ -55,9 +56,10 @@ function DoorCardComponent({ item, selected, onSelect }: DoorCardProps) {
             const parsedData = parseApiResponse<{ photos?: string[] }>(data);
             if (parsedData.photos && parsedData.photos.length > 0) {
               const photoPath = parsedData.photos[0];
-              // Обрабатываем разные форматы путей
               let url: string;
-              if (photoPath.startsWith('/uploads/')) {
+              if (photoPath.startsWith('http://') || photoPath.startsWith('https://')) {
+                url = photoPath;
+              } else if (photoPath.startsWith('/uploads/')) {
                 url = `/api${photoPath}`;
               } else if (photoPath.startsWith('/uploads')) {
                 url = `/api/uploads/${photoPath.substring(8)}`;

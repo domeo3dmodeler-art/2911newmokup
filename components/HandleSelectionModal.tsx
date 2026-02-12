@@ -34,20 +34,15 @@ export default function HandleSelectionModal({
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
-  // Нормализуем путь к фото
+  // Нормализуем путь к фото (внешние URL оставляем как есть)
   const getNormalizedPhotoUrl = (photoPath: string) => {
     if (!photoPath) return '';
-    // Если путь уже начинается с /api, возвращаем как есть
+    if (photoPath.startsWith('http://') || photoPath.startsWith('https://')) return photoPath;
     if (photoPath.startsWith('/api/')) return photoPath;
-    // Если путь начинается с products/, добавляем /api/uploads/
     if (photoPath.startsWith('products/')) return `/api/uploads/${photoPath}`;
-    // Если путь начинается с uploads/, добавляем /api/
     if (photoPath.startsWith('uploads/')) return `/api/${photoPath}`;
-    // Если путь начинается с /uploads/, добавляем /api
     if (photoPath.startsWith('/uploads/')) return `/api${photoPath}`;
-    // Если путь начинается с /, возвращаем как есть
     if (photoPath.startsWith('/')) return `/api${photoPath}`;
-    // Иначе добавляем /api/uploads/
     return `/api/uploads/${photoPath}`;
   };
   

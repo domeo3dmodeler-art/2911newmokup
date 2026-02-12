@@ -6,9 +6,17 @@ import { designTokens } from '@/lib/design/tokens';
 import HandleSelectionModal from '@/components/HandleSelectionModal';
 import { Info } from 'lucide-react';
 import { useConfiguratorData, useModelDetails, usePriceCalculation } from '@/lib/configurator/useConfiguratorData';
+import { useModelOptions } from '@/lib/configurator/useModelOptions';
 import type { DoorModel, DoorCoating, DoorEdge, DoorOption, DoorHandle, DoorLimiter } from '@/lib/configurator/api';
 import { CartManager } from '@/components/doors';
 import type { CartItem, HardwareKit } from '@/components/doors';
+import { formatModelNameForCard } from '@/components/doors/utils';
+import {
+  getImageSrc,
+  getImageSrcWithPlaceholder,
+  createPlaceholderSvgDataUrl,
+  getHandleImageSrc,
+} from '@/lib/configurator/image-src';
 import GlobalHeader from '@/components/layout/GlobalHeader';
 import NotificationBell from '@/components/ui/NotificationBell';
 import { useAuth } from '@/lib/auth/AuthContext';
@@ -39,35 +47,73 @@ export default function FigmaExactReplicaPage() {
   const userRole = user?.role || 'guest';
 
   // Загружаем данные через хуки
-  const { models: allModels, handles: allHandles, limiters: allLimiters, loading: dataLoading, error: dataError } = useConfiguratorData();
+  const { models: allModels, rawModels, handles: allHandles, limiters: allLimiters, architraves: allArchitraves, kits: configKits, loading: dataLoading, error: dataError } = useConfiguratorData();
   
   // Состояние для выбранной модели (ID из API)
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   
-  // Загружаем детали выбранной модели
-  const { model: selectedModelData, coatings, edges, options, loading: modelLoading } = useModelDetails(selectedModelId);
-  
+  // Загружаем детали выбранной модели (у каждой модели — тип покрытия и набор цветов по типам)
+  const { model: selectedModelData, coatings, finishes, colorsByFinish, edges, options, loading: modelLoading } = useModelDetails(selectedModelId, rawModels);
+
   // Хук для расчета цены
-  const { calculate: calculatePrice, calculating: priceCalculating, priceData } = usePriceCalculation();
+  const { calculate: calculatePrice, calculating: priceCalculating, priceData, clearPrice } = usePriceCalculation();
   
-  // Состояние для стиля
+  // Состояние для стиля и наполнения (наполнение — только фильтр)
   const [selectedStyle, setSelectedStyle] = useState<string>('Современные');
+  const [selectedFilling, setSelectedFilling] = useState<string | null>(null);
   
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'полотно' | 'покрытие' | 'фурнитура' | 'наличники' | 'доп-опции'>('полотно');
   
-  // Состояние для покрытия и цвета (ID из API)
-  const [coatingType, setCoatingType] = useState<'пэт' | 'пвх' | 'шпон' | 'эмаль'>('пвх');
+  // Состояние для покрытия и цвета: тип покрытия из данных модели, затем цвет этого типа
+  const [selectedFinish, setSelectedFinish] = useState<string | null>(null);
   const [selectedCoatingId, setSelectedCoatingId] = useState<string | null>(null);
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [selectedWood, setSelectedWood] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  /** Цвет стекла (лист Стекло_доступность); на цену не влияет, только в спецификацию */
+  const [selectedGlassColor, setSelectedGlassColor] = useState<string | null>(null);
   
   // Состояние для размеров, реверса и наполнения (вкладка Полотно)
   const [width, setWidth] = useState<number>(800);
   const [height, setHeight] = useState<number>(2000);
   const [reversible, setReversible] = useState<boolean>(false);
   const [filling, setFilling] = useState<'standard' | 'good' | 'excellent'>('good');
+
+  // Каскадные опции: доступность и списки по текущим фильтрам (реверс, наполнение, размер, покрытие, цвет)
+  const selectedCoatingForOptions = selectedCoatingId ? coatings.find((c) => c.id === selectedCoatingId) : null;
+  const modelOptionsParams = useMemo(
+    () => ({
+      reversible,
+      filling: selectedFilling,
+      width,
+      height,
+      finish: selectedFinish,
+      color: selectedCoatingForOptions?.color_name ?? null,
+    }),
+    [reversible, selectedFilling, width, height, selectedFinish, selectedCoatingForOptions?.color_name]
+  );
+  const { data: modelOptionsData } = useModelOptions(selectedModelId, selectedStyle, modelOptionsParams);
+
+  // При смене модели выставляем первый тип покрытия из каскада/модели
+  useEffect(() => {
+    const list = selectedModelId && modelOptionsData.finishes.length > 0 ? modelOptionsData.finishes : finishes;
+    if (list.length > 0) {
+      setSelectedFinish((prev) => (prev && list.includes(prev) ? prev : list[0]));
+    } else {
+      setSelectedFinish(null);
+    }
+  }, [selectedModelId, modelOptionsData.finishes, finishes]);
+  // При смене типа покрытия сбрасываем выбранный цвет, если он не из этого типа
+  useEffect(() => {
+    if (!selectedFinish || !selectedCoatingId) return;
+    const coating = coatings.find((c) => c.id === selectedCoatingId);
+    if (coating && coating.coating_type !== selectedFinish) {
+      setSelectedCoatingId(null);
+      setSelectedColor(null);
+      setSelectedWood(null);
+    }
+  }, [selectedFinish, selectedCoatingId, coatings]);
   
   // Состояние для фурнитуры
   const [selectedHardwareKit, setSelectedHardwareKit] = useState<string | null>(null);
@@ -83,6 +129,8 @@ export default function FigmaExactReplicaPage() {
   const [selectedStopperColor, setSelectedStopperIdColor] = useState<string | null>(null);
   const [selectedMirrorId, setSelectedMirrorId] = useState<string | null>(null);
   const [selectedThresholdId, setSelectedThresholdId] = useState<string | null>(null);
+  const [zoomPreviewSrc, setZoomPreviewSrc] = useState<string | null>(null);
+  const [zoomPreviewAlt, setZoomPreviewAlt] = useState<string>('');
 
   // Корзина
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -106,6 +154,15 @@ export default function FigmaExactReplicaPage() {
   
   // Таб для админ-панели (если нужен)
   const [tab, setTab] = useState<'config' | 'admin'>('config');
+
+  useEffect(() => {
+    if (!zoomPreviewSrc) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setZoomPreviewSrc(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [zoomPreviewSrc]);
 
   // Загружаем комплекты фурнитуры
   useEffect(() => {
@@ -145,26 +202,64 @@ export default function FigmaExactReplicaPage() {
     }
   }, [isAuthenticated]);
 
-  // Функция для создания SVG placeholder (работает в браузере)
-  const createPlaceholderSVG = (width: number, height: number, bgColor: string, textColor: string, text: string) => {
-    const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
-      <rect width="${width}" height="${height}" fill="${bgColor}"/>
-      <text x="${width/2}" y="${height/2}" font-family="Arial, sans-serif" font-size="${Math.min(width, height) * 0.1}" fill="${textColor}" text-anchor="middle" dominant-baseline="middle">${text}</text>
-    </svg>`;
-    // Используем encodeURIComponent для URL-кодирования
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  };
+  // Дублируем комплекты из конфигуратора в state для CartManager (публичный API, без авторизации)
+  useEffect(() => {
+    if (configKits && configKits.length > 0) {
+      setHardwareKits(configKits.map((k) => ({
+        id: k.id,
+        name: k.name,
+        description: '',
+        price: k.price,
+        priceGroup: k.priceGroup || '',
+        isBasic: k.isBasic || false,
+      })));
+    }
+  }, [configKits]);
 
-  // Фильтруем модели по выбранному стилю
+  // Фильтруем модели по стилю и наполнению (название наполнения из листа «Опции»)
   const filteredModels = useMemo(() => {
-    if (!selectedStyle) return allModels;
-    return allModels.filter(m => m.style === selectedStyle);
-  }, [allModels, selectedStyle]);
+    let list = allModels;
+    if (selectedStyle) list = list.filter(m => m.style === selectedStyle);
+    if (selectedFilling) {
+      list = list.filter(m => {
+        const fillings = (m as { filling_names?: string[]; doorOptions?: { filling_name?: string } }).filling_names
+          ?? (m.doorOptions?.filling_name ? [m.doorOptions.filling_name] : []);
+        return fillings.includes(selectedFilling);
+      });
+    }
+    return list;
+  }, [allModels, selectedStyle, selectedFilling]);
 
   // Уникальные стили из моделей
   const availableStyles = useMemo(() => {
     const styles = Array.from(new Set(allModels.map(m => m.style))).sort();
     return styles;
+  }, [allModels]);
+
+  // Уникальные названия наполнения: по всем моделям или по каскаду (если модель выбрана и API вернул список)
+  const availableFillingsFromAll = useMemo(() => {
+    const names = new Set<string>();
+    allModels.forEach((m: { filling_names?: string[]; doorOptions?: { filling_name?: string } }) => {
+      const list = m.filling_names ?? (m.doorOptions?.filling_name ? [m.doorOptions.filling_name] : []);
+      list.forEach(name => { if (name) names.add(name); });
+    });
+    return Array.from(names).sort();
+  }, [allModels]);
+  const availableFillings =
+    selectedModelId && modelOptionsData.fillings.length > 0 ? modelOptionsData.fillings : availableFillingsFromAll;
+
+  // Диагностика фото моделей (в консоль)
+  useEffect(() => {
+    if (allModels.length === 0) return;
+    const withPhoto = allModels.filter((m) => m.photo);
+    console.log('[Doors] Фото моделей: всего', allModels.length, ', с полем photo:', withPhoto.length);
+    allModels.slice(0, 3).forEach((m, i) => {
+      const p = m.photo ? (m.photo.length > 50 ? m.photo.slice(0, 50) + '…' : m.photo) : null;
+      console.log(`[Doors] Модель ${i + 1}:`, m.model_name || m.id, '| photo:', p);
+    });
+    if (withPhoto.length === 0) {
+      console.log('[Doors] Подсказка: API complete-data вернул photo: null для всех моделей. Проверьте БД (PropertyPhoto, ProductImage) и файлы в public/uploads/ — см. docs/PHOTOS_FLOW_ANALYSIS.md');
+    }
   }, [allModels]);
 
   // Устанавливаем первую модель при загрузке данных
@@ -182,6 +277,28 @@ export default function FigmaExactReplicaPage() {
       setSelectedModel(selectedModelData.model_name);
     }
   }, [selectedModelId, selectedModelData]);
+
+  // При смене модели сбрасываем цвет стекла (варианты зависят от модели)
+  useEffect(() => {
+    setSelectedGlassColor(null);
+  }, [selectedModelId]);
+
+  // При смене модели: если кромка в базе — выбираем базовую (первую); иначе сбрасываем, если выбранная не в списке
+  useEffect(() => {
+    if (selectedModelData?.edge_in_base && edges.length > 0) {
+      const edgeIds = new Set(edges.map((e) => e.id));
+      if (!selectedEdgeId || !edgeIds.has(selectedEdgeId)) setSelectedEdgeId(edges[0].id);
+    } else {
+      if (!selectedEdgeId || selectedEdgeId === 'none') return;
+      const edgeIds = new Set(edges.map((e) => e.id));
+      if (!edgeIds.has(selectedEdgeId)) setSelectedEdgeId(null);
+    }
+  }, [selectedModelId, edges, selectedEdgeId, selectedModelData?.edge_in_base]);
+
+  // При смене на модель без реверса (по каскаду) сбрасываем выбор «Да»
+  useEffect(() => {
+    if (reversible && !modelOptionsData.revers_available) setReversible(false);
+  }, [selectedModelId, modelOptionsData.revers_available, reversible]);
 
   // Цвета ограничителей
   const stopperColors = [
@@ -255,26 +372,34 @@ export default function FigmaExactReplicaPage() {
     }));
   }, [availableStyles]);
 
-  // Варианты размеров из выбранной модели
+  // Варианты размеров: всегда из всех размеров выбранной модели (complete-data),
+  // чтобы список не схлопывался текущим выбором width/height из model-options.
   const widthOptions = useMemo(() => {
     if (!selectedModelData || !selectedModelData.sizes) return [600, 700, 800, 900];
-    const widths = Array.from(new Set(selectedModelData.sizes.map(s => s.width))).sort();
+    const widths = Array.from(new Set(selectedModelData.sizes.map((s) => s.width))).sort((a, b) => a - b);
     return widths.length > 0 ? widths : [600, 700, 800, 900];
   }, [selectedModelData]);
 
+  // Высоты из товаров модели + для всех моделей диапазоны 2301–2500 и 2501–3000 (надбавка % к 2000 мм)
+  const HEIGHT_BAND_2301_2500 = 2350;
+  const HEIGHT_BAND_2501_3000 = 2750;
   const heightOptions = useMemo(() => {
-    if (!selectedModelData || !selectedModelData.sizes) {
-      return [
-        { value: 2000, label: '2000' },
-        { value: 2100, label: '2100' },
-        { value: 2200, label: '2200' },
-        { value: 2300, label: '2300' },
-        { value: 2500, label: '2301-2700' },
-        { value: 2850, label: '2701-3000' },
-      ];
-    }
-    const heights = Array.from(new Set(selectedModelData.sizes.map(s => s.height))).sort();
-    return heights.map(h => ({ value: h, label: String(h) }));
+    const fromSizes = selectedModelData?.sizes
+      ? Array.from(new Set(selectedModelData.sizes.map((s) => s.height))).sort((a, b) => a - b)
+      : [];
+    const baseOptions = fromSizes.length > 0
+      ? fromSizes.map((h) => ({ value: h, label: String(h) }))
+      : [
+          { value: 2000, label: '2000' },
+          { value: 2100, label: '2100' },
+          { value: 2200, label: '2200' },
+          { value: 2300, label: '2300' },
+        ];
+    const bands = [
+      { value: HEIGHT_BAND_2301_2500, label: '2301–2500' },
+      { value: HEIGHT_BAND_2501_3000, label: '2501–3000' },
+    ];
+    return [...baseOptions, ...bands];
   }, [selectedModelData]);
 
   // Варианты наполнения
@@ -284,12 +409,12 @@ export default function FigmaExactReplicaPage() {
     { type: 'excellent' as const, name: 'Отличное', soundInsulation: '35-42 дБ', description: 'Максимальная звукоизоляция' },
   ];
 
-  // Ручки из API
+  // Ручки из API (отображение фото через getHandleImageSrc / image-src)
   const handles = useMemo(() => {
     return allHandles.map(h => ({
       id: h.id,
       name: h.name,
-      photo: h.photo_path || createPlaceholderSVG(300, 300, '#718096', '#FFFFFF', h.name),
+      photo: h.photo_path,
       price: h.price_rrc || h.price_opt || 0
     }));
   }, [allHandles]);
@@ -299,73 +424,82 @@ export default function FigmaExactReplicaPage() {
     ? allHandles.find(h => h.id === selectedHandleId)
     : null;
 
-  // Фильтруем покрытия по типу
+  // Типы покрытия: из каскада или из модели; при смене модели выставляем первый доступный
+  const cascadeFinishes = useMemo(() => {
+    if (selectedModelId && modelOptionsData.finishes.length > 0) return modelOptionsData.finishes;
+    return finishes;
+  }, [selectedModelId, modelOptionsData.finishes, finishes]);
+
+  // Цвета только для выбранного типа покрытия, с учётом каскада (только доступные по опциям)
   const filteredCoatings = useMemo(() => {
-    if (!coatings.length) return [];
-    const coatingTypeMap: Record<string, string> = {
-      'пэт': 'ПЭТ',
-      'пвх': 'ПВХ',
-      'шпон': 'Шпон',
-      'эмаль': 'Эмаль'
-    };
-    const type = coatingTypeMap[coatingType] || coatingType;
-    return coatings.filter(c => c.coating_type === type);
-  }, [coatings, coatingType]);
+    if (!selectedFinish || !coatings.length) return [];
+    let list = coatings.filter((c) => c.coating_type === selectedFinish);
+    const allowedColors = modelOptionsData.colorsByFinish[selectedFinish];
+    // Fallback to full model palette when cascade endpoint returns an empty list.
+    if (selectedModelId && Array.isArray(allowedColors) && allowedColors.length > 0) {
+      const allowed = new Set(allowedColors);
+      list = list.filter((c) => allowed.has(c.color_name));
+    }
+    return list;
+  }, [coatings, selectedFinish, selectedModelId, modelOptionsData.colorsByFinish]);
 
-  // Монохромные цвета (из покрытий типа ПЭТ/ПВХ)
+  // Монохромная палитра: цвета выбранного типа ПЭТ/ПВХ/Эмаль
   const monochromeColors = useMemo(() => {
-    const pvcCoatings = coatings.filter(c => c.coating_type === 'ПВХ' || c.coating_type === 'ПЭТ');
-    return pvcCoatings.map((c, idx) => ({
+    if (!selectedFinish || !['ПЭТ', 'ПВХ', 'Эмаль'].includes(selectedFinish)) return [];
+    return filteredCoatings.map((c) => ({
       id: c.id,
       name: c.color_name,
-      color: '#FFFFFF' // TODO: добавить цвет в БД или использовать фото
+      color: '#FFFFFF',
+      photo_path: c.photo_path ?? null,
     }));
-  }, [coatings]);
+  }, [filteredCoatings, selectedFinish]);
 
-  // Древесные цвета (из покрытий типа Шпон)
+  // Древесная палитра: цвета выбранного типа Шпон
   const woodOptions = useMemo(() => {
-    const woodCoatings = coatings.filter(c => c.coating_type === 'Шпон');
-    return woodCoatings.map((c, idx) => ({
+    if (selectedFinish !== 'Шпон') return [];
+    return filteredCoatings.map((c) => ({
       id: c.id,
       name: c.color_name,
-      image: c.photo_path || createPlaceholderSVG(400, 400, '#8B7355', '#FFFFFF', c.color_name)
+      photo_path: c.photo_path ?? null,
     }));
-  }, [coatings]);
+  }, [filteredCoatings, selectedFinish]);
 
-  // Опции кромки из API
+  // Опции кромки: из API (с наценкой). Если кромка в базе — без варианта «Без кромки», только цвета с +ценой
   const edgeOptions = useMemo(() => {
-    const edgeList: Array<{id: string, name: string, icon: string, color?: string, image: string | null}> = [
-      { id: 'none', name: 'Без кромки', icon: 'none', image: null }
-    ];
-    edges.forEach(edge => {
+    const edgeList: Array<{ id: string; name: string; icon: string; color?: string; photo_path: string | null; surcharge?: number }> = [];
+    if (!selectedModelData?.edge_in_base) edgeList.push({ id: 'none', name: 'Без кромки', icon: 'none', photo_path: null, surcharge: 0 });
+    const allowed = selectedModelId && modelOptionsData.edges.length > 0 ? new Set(modelOptionsData.edges) : null;
+    edges.forEach((edge) => {
+      if (allowed && !allowed.has(edge.edge_color_name)) return;
       edgeList.push({
         id: edge.id,
         name: edge.edge_color_name,
         icon: 'none',
-        image: edge.photo_path || null
+        photo_path: edge.photo_path ?? null,
+        surcharge: edge.surcharge ?? 0,
       });
     });
     return edgeList;
-  }, [edges]);
+  }, [edges, selectedModelId, modelOptionsData.edges, selectedModelData?.edge_in_base]);
 
-  // Опции наличников из API (опции типа "наличники")
+  // Наличники: из API hardware?type=architraves
   const architraveOptions = useMemo(() => {
-    return options.filter(o => o.option_type === 'наличники').map(o => ({
+    return (allArchitraves || []).map(o => ({
       id: o.id,
-      name: o.option_name,
-      image: o.photo_path || createPlaceholderSVG(300, 300, '#E2E8F0', '#1A202C', o.option_name)
+      name: o.option_name || o.option_type || '',
+      photo_path: o.photo_path ?? null,
     }));
-  }, [options]);
+  }, [allArchitraves]);
 
   // Ограничители из API
   const stopperOptions = useMemo(() => {
-    const stopperList: Array<{id: string, name: string, price?: number, image?: string}> = [{ id: 'none', name: 'Без ограничителя' }];
+    const stopperList: Array<{ id: string; name: string; price?: number; photo_path: string | null }> = [{ id: 'none', name: 'Без ограничителя', photo_path: null }];
     allLimiters.forEach(limiter => {
       stopperList.push({
         id: limiter.id,
         name: limiter.name,
         price: limiter.price_rrc || limiter.price_opt,
-        image: limiter.photo_path || createPlaceholderSVG(200, 200, '#1A202C', '#FFFFFF', limiter.name)
+        photo_path: limiter.photo_path ?? null,
       });
     });
     return stopperList;
@@ -390,37 +524,6 @@ export default function FigmaExactReplicaPage() {
     return options.filter(o => o.option_type === 'порог');
   }, [options]);
 
-  // Нормализуем путь к фото ручки
-  // Всегда приоритет mockup фото из папки mockups/ruchki
-  const getHandlePhotoUrl = (photoPath: string | undefined, handleName?: string) => {
-    // Всегда пробуем mockup, если есть имя ручки
-    if (handleName) {
-      // Сначала пробуем оригинальное имя (на случай если файл с пробелами)
-      const trimmed = handleName.trim();
-      const url = `/data/mockups/ruchki/${trimmed}.png`;
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔍 getHandlePhotoUrl:', { handleName, trimmed, url });
-      }
-      return url;
-    }
-    
-    // Если нет имени, но есть путь, пробуем извлечь имя из пути
-    if (photoPath) {
-      // Пытаемся извлечь имя файла из пути
-      const fileName = photoPath.split('/').pop()?.replace(/\.[^/.]+$/, '');
-      if (fileName) {
-        const normalizedName = fileName.trim().replace(/\s+/g, '_');
-        const url = `/data/mockups/ruchki/${normalizedName}.png`;
-        if (process.env.NODE_ENV === 'development') {
-          console.log('🔍 getHandlePhotoUrl (from path):', { photoPath, fileName, normalizedName, url });
-        }
-        return url;
-      }
-    }
-    
-    return '';
-  };
-
   // Спецификация (динамические, обновляются при выборе)
   const getCoatingText = () => {
     if (!selectedCoatingId) return 'Не выбрано';
@@ -430,12 +533,15 @@ export default function FigmaExactReplicaPage() {
   };
 
   // Описания типов покрытия
-  const coatingDescriptions = {
+  const coatingDescriptions: Record<string, string> = {
     'пэт': 'Покрытие, имитирующее эмаль, пластик',
     'пвх': 'Высококачественная современная пленка с различными текстурами',
     'эмаль': 'Многослойное лакокрасочное покрытие',
     'шпон': 'Натуральные срезы различных пород дерева с покрытием лаком',
+    'алюминий': 'Металлическое покрытие',
   };
+  const getCoatingDescription = () =>
+    selectedFinish ? (coatingDescriptions[selectedFinish.toLowerCase()] ?? `Тип покрытия: ${selectedFinish}`) : '';
 
   const getFillingText = () => {
     const fillingOption = fillingOptions.find(f => f.type === filling);
@@ -454,8 +560,9 @@ export default function FigmaExactReplicaPage() {
   };
 
   const getHardwareKitText = () => {
-    // TODO: Добавить комплекты фурнитуры в API
-    return 'Не выбрано';
+    if (!selectedHardwareKit) return 'Не выбрано';
+    const kit = configKits?.find((k) => k.id === selectedHardwareKit) || hardwareKits.find((k) => k.id === selectedHardwareKit);
+    return kit?.name || selectedHardwareKit;
   };
 
   const getStopperText = () => {
@@ -484,12 +591,11 @@ export default function FigmaExactReplicaPage() {
 
   // Добавление в корзину
   const addToCart = useCallback(() => {
-    if (!selectedModelId || !priceData) return;
+    if (!priceData) return;
 
+    // В option_ids только наличники (отдельный товар в корзине); зеркало и порог — опции, не отдельные строки
     const optionIds: string[] = [];
     if (selectedArchitraveId) optionIds.push(selectedArchitraveId);
-    if (selectedMirrorId && selectedMirrorId !== 'none') optionIds.push(selectedMirrorId);
-    if (selectedThresholdId) optionIds.push(selectedThresholdId);
 
     const cartItem: CartItem = {
       id: `${selectedModelId}-${Date.now()}`,
@@ -507,6 +613,10 @@ export default function FigmaExactReplicaPage() {
       edgeId: selectedEdgeId || undefined,
       optionIds: optionIds.length > 0 ? optionIds : undefined,
       sku_1c: priceData.sku || undefined,
+      reversible,
+      mirror: selectedMirrorId && selectedMirrorId !== 'none' ? selectedMirrorId : undefined,
+      threshold: selectedThresholdId != null,
+      hardwareKitId: selectedHardwareKit || undefined,
     };
 
     setCart(prev => [...prev, cartItem]);
@@ -563,6 +673,10 @@ export default function FigmaExactReplicaPage() {
             coatingId: item.coatingId,
             edgeId: item.edgeId,
             optionIds: item.optionIds,
+            hardwareKitId: item.hardwareKitId,
+            reversible: item.reversible,
+            mirror: item.mirror,
+            threshold: item.threshold,
           })),
           totalAmount: cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
         })
@@ -593,37 +707,54 @@ export default function FigmaExactReplicaPage() {
     }
   };
 
-  // Расчет цены при изменении параметров
+  // Расчёт цены только после выбора: Стиль, Модель, Размеры, Реверс, Наполнение, Покрытие и Цвет
+  const canCalculatePrice = Boolean(
+    selectedStyle &&
+    selectedModelId &&
+    width &&
+    height &&
+    selectedFinish &&
+    selectedCoatingId
+  );
   useEffect(() => {
-    if (!selectedModelId) return;
-
+    if (!canCalculatePrice) {
+      clearPrice();
+      return;
+    }
+    const coating = coatings.find(c => c.id === selectedCoatingId);
+    const finish = coating?.coating_type;
+    const colorName = coating?.color_name;
     const optionIds: string[] = [];
-    if (selectedMirrorId && selectedMirrorId !== 'none') optionIds.push(selectedMirrorId);
-    if (selectedThresholdId) optionIds.push(selectedThresholdId);
     if (selectedArchitraveId) optionIds.push(selectedArchitraveId);
 
     calculatePrice({
-      door_model_id: selectedModelId,
+      door_model_id: selectedModelId!,
+      style: selectedModelData?.style || undefined,
+      finish: finish || undefined,
+      color: colorName || undefined,
       coating_id: selectedCoatingId || undefined,
       edge_id: selectedEdgeId || undefined,
       option_ids: optionIds.length > 0 ? optionIds : undefined,
       handle_id: selectedHandleId || undefined,
       limiter_id: selectedStopperId && selectedStopperId !== 'none' ? selectedStopperId : undefined,
+      hardware_kit_id: selectedHardwareKit || undefined,
       width,
-      height
+      height,
+      reversible,
+      mirror: selectedMirrorId && selectedMirrorId !== 'none' ? (selectedMirrorId as 'one' | 'both' | 'mirror_one' | 'mirror_both') : 'none',
+      threshold: selectedThresholdId != null,
     }).catch(err => {
       console.error('Ошибка расчета цены:', err);
     });
-  }, [selectedModelId, selectedCoatingId, selectedEdgeId, selectedHandleId, selectedStopperId, selectedMirrorId, selectedThresholdId, selectedArchitraveId, width, height, calculatePrice]);
+  }, [canCalculatePrice, selectedModelId, selectedModelData?.style, selectedCoatingId, selectedEdgeId, selectedHandleId, selectedStopperId, selectedArchitraveId, selectedHardwareKit, reversible, selectedMirrorId, selectedThresholdId, width, height, calculatePrice, clearPrice, selectedModelData, coatings]);
 
-  // Форматируем цену
+  // Форматируем цену (показываем подсказку, если не выбраны все обязательные параметры)
   const price = useMemo(() => {
     if (priceCalculating) return 'Рассчитывается...';
-    if (priceData) {
-      return `${priceData.total.toLocaleString('ru-RU')} Р`;
-    }
+    if (priceData) return `${priceData.total.toLocaleString('ru-RU')} Р`;
+    if (!canCalculatePrice) return 'Выберите стиль, модель, размеры, реверс, наполнение, покрытие и цвет';
     return '—';
-  }, [priceData, priceCalculating]);
+  }, [priceData, priceCalculating, canCalculatePrice]);
 
   return (
     <>
@@ -926,7 +1057,7 @@ export default function FigmaExactReplicaPage() {
                   {activeTab === 'полотно' && (
                     <div className="space-y-5">
                       {/* Модели */}
-                      <div className="grid grid-cols-5 gap-3">
+                      <div className="grid grid-cols-4 gap-2">
                         {dataLoading ? (
                           <div className="col-span-5 text-center py-8 text-gray-500">Загрузка моделей...</div>
                         ) : filteredModels.length === 0 ? (
@@ -945,27 +1076,28 @@ export default function FigmaExactReplicaPage() {
                                   : 'border-2 border-gray-200 shadow-sm hover:shadow-md hover:border-gray-400 hover:scale-102'
                               }`}
                             >
-                              {/* Миниатюра модели - соотношение 2:1 (высота в 2 раза больше ширины) */}
-                              <div 
-                                className="bg-gray-100 relative flex items-center justify-center overflow-hidden"
-                                style={{ 
-                                  width: '100%',
-                                  aspectRatio: '1/2'
-                                }}
-                              >
-                                {/* TODO: Добавить фото модели в БД */}
-                                <div className="placeholder absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-200 to-gray-300">
-                                  <div className="text-gray-500 text-4xl mb-2">🚪</div>
-                                  <div className="text-gray-600 text-xs font-medium">{model.model_name}</div>
-                                </div>
+                              {/* Миниатюра модели — бокс по контуру фото */}
+                              <div className="bg-gray-100 relative overflow-hidden min-h-[60px]">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  loading="lazy"
+                                  src={getImageSrcWithPlaceholder(model.photo, createPlaceholderSvgDataUrl(400, 800, '#E2E8F0', '#4A5568', formatModelNameForCard(model.model_name || model.id)))}
+                                  alt={formatModelNameForCard(model.model_name || model.id)}
+                                  className="w-full h-auto block bg-white"
+                                  onError={(e) => {
+                                    const placeholder = createPlaceholderSvgDataUrl(400, 800, '#E2E8F0', '#4A5568', formatModelNameForCard(model.model_name || model.id));
+                                    if (e.currentTarget.src !== placeholder) e.currentTarget.src = placeholder;
+                                  }}
+                                />
                               </div>
-                              {/* Название модели */}
+                              {/* Код модели Domeo (Web) */}
                               <div style={{ padding: '8px', background: 'white', textAlign: 'center' }}>
                                 <div 
                                   className="font-medium text-gray-900"
                                   style={{ fontSize: '12px' }}
+                                  title={model.model_name}
                                 >
-                                  {model.model_name}
+                                  {formatModelNameForCard(model.model_name || model.id)}
                                 </div>
                               </div>
                               {/* Галочка при выборе */}
@@ -1066,13 +1198,18 @@ export default function FigmaExactReplicaPage() {
                             Нет
                           </button>
                           <button
-                            onClick={() => setReversible(true)}
+                            type="button"
+                            disabled={!modelOptionsData.revers_available}
+                            onClick={() => modelOptionsData.revers_available && setReversible(true)}
                             className={`px-6 py-2.5 rounded-lg font-semibold transition-all duration-300 ${
-                              reversible
-                                ? 'bg-gray-900 text-white shadow-md scale-105'
-                                : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-gray-500 hover:shadow-sm'
+                              !modelOptionsData.revers_available
+                                ? 'bg-gray-200 text-gray-400 border-2 border-gray-200 cursor-not-allowed'
+                                : reversible
+                                  ? 'bg-gray-900 text-white shadow-md scale-105'
+                                  : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-gray-500 hover:shadow-sm'
                             }`}
                             style={{ fontSize: '13px' }}
+                            title={!modelOptionsData.revers_available ? 'Реверс недоступен для выбранной модели' : undefined}
                           >
                             Да
                           </button>
@@ -1080,46 +1217,31 @@ export default function FigmaExactReplicaPage() {
                         <p className="mt-2 text-xs text-gray-600 font-medium">Дверь со скрытым коробом, открывается внутрь</p>
                       </div>
 
-                      {/* Наполнение */}
+                      {/* Наполнение (из листа «Опции», название наполнения) */}
+                      {availableFillings.length > 0 && (
                       <div>
-                        <h3 
-                          className="mb-3 font-semibold"
-                          style={{
-                            fontFamily: 'Roboto, sans-serif',
-                            fontSize: '14px',
-                            fontWeight: 600,
-                            color: '#3D3A3A'
-                          }}
-                        >
+                        <h3 className="mb-3 font-semibold" style={{ fontFamily: 'Roboto, sans-serif', fontSize: '14px', fontWeight: 600, color: '#3D3A3A' }}>
                           НАПОЛНЕНИЕ
                         </h3>
-                        <div className="grid grid-cols-3 gap-2">
-                          {fillingOptions.map((option) => (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => setSelectedFilling(null)}
+                            className={`rounded border px-3 py-2 text-sm font-medium transition ${!selectedFilling ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white hover:border-gray-400'}`}
+                          >
+                            Все
+                          </button>
+                          {availableFillings.map((name) => (
                             <button
-                              key={option.type}
-                              onClick={() => setFilling(option.type)}
-                              className={`p-2.5 rounded-lg border-2 transition-all duration-300 text-left ${
-                                filling === option.type
-                                  ? 'border-gray-900 ring-2 ring-gray-100 shadow-lg bg-white scale-105'
-                                  : 'border-gray-200 shadow-sm hover:shadow-md hover:border-gray-400 hover:scale-102 bg-white'
-                              }`}
+                              key={name}
+                              onClick={() => setSelectedFilling(name)}
+                              className={`rounded border px-3 py-2 text-sm font-medium transition ${selectedFilling === name ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white hover:border-gray-400'}`}
                             >
-                              <div className="font-bold text-base mb-0.5 text-gray-900">{option.name}</div>
-                              <div className="text-sm font-semibold text-gray-700 mb-0.5">{option.soundInsulation}</div>
-                              <div className="text-xs text-gray-600 leading-relaxed">{option.description}</div>
-                              {filling === option.type && (
-                                <div className="mt-1.5 flex justify-end animate-in zoom-in duration-300">
-                                  <div className="w-4 h-4 bg-gray-900 rounded-full flex items-center justify-center shadow-md">
-                                    <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  </div>
-                                </div>
-                              )}
+                              {name}
                             </button>
                           ))}
                         </div>
                       </div>
+                      )}
                     </div>
                   )}
 
@@ -1142,21 +1264,23 @@ export default function FigmaExactReplicaPage() {
                         </h3>
                         <div className="space-y-3">
                           <div className="flex gap-2 flex-wrap">
-                            {(['пэт', 'пвх', 'шпон', 'эмаль'] as const).map((type) => (
+                            {(cascadeFinishes.length ? cascadeFinishes : ['ПЭТ', 'ПВХ', 'Шпон', 'Эмаль']).map((finishType) => (
                               <button
-                                key={type}
+                                key={finishType}
                                 onClick={() => {
-                                  setCoatingType(type);
-                                  if (type === 'шпон') {
+                                  setSelectedFinish(finishType);
+                                  if (finishType === 'Шпон') {
                                     setSelectedColor(null);
                                     setSelectedWood(null);
+                                    setSelectedCoatingId(null);
                                   } else {
                                     setSelectedWood(null);
+                                    setSelectedCoatingId(null);
                                     if (!selectedColor) setSelectedColor('Белый');
                                   }
                                 }}
                                 className={`relative flex items-center justify-center gap-2 px-4 py-2.5 rounded font-semibold transition-all duration-300 ${
-                                  coatingType === type
+                                  selectedFinish === finishType
                                     ? 'bg-gray-900 text-white shadow-md'
                                     : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300 hover:shadow-sm'
                                 }`}
@@ -1168,26 +1292,26 @@ export default function FigmaExactReplicaPage() {
                                   minWidth: '80px'
                                 }}
                               >
-                                {coatingType === type && (
+                                {selectedFinish === finishType && (
                                   <div className="flex-shrink-0 w-4 h-4 bg-white rounded-full flex items-center justify-center">
                                     <svg className="w-2.5 h-2.5 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                                     </svg>
                                   </div>
                                 )}
-                                <span>{type === 'пэт' ? 'ПЭТ' : type === 'пвх' ? 'ПВХ' : type === 'шпон' ? 'Шпон' : 'Эмаль'}</span>
+                                <span>{finishType}</span>
                               </button>
                             ))}
                           </div>
                           {/* Описание выбранного типа покрытия */}
                           <div className="text-sm text-gray-600" style={{ fontFamily: 'Roboto, sans-serif', fontSize: '13px', lineHeight: '1.5' }}>
-                            {coatingDescriptions[coatingType]}
+                            {getCoatingDescription()}
                           </div>
                         </div>
                       </div>
 
                       {/* Монохромная палитра (для ПЭТ, ПВХ и Эмаль) */}
-                      {(coatingType === 'пэт' || coatingType === 'пвх' || coatingType === 'эмаль') && (
+                      {selectedFinish && ['ПЭТ', 'ПВХ', 'Эмаль'].includes(selectedFinish) && (
                         <div>
                           <h3 
                             className="mb-4 font-semibold"
@@ -1200,35 +1324,51 @@ export default function FigmaExactReplicaPage() {
                           >
                             МОНОХРОМНАЯ ПАЛИТРА
                           </h3>
-                          <div className="grid grid-cols-5 gap-1.5">
+                          <div className="grid grid-cols-4 gap-2">
                             {monochromeColors.map((color) => (
                               <button
                                 key={color.id}
                                 onClick={() => {
+                                  setSelectedCoatingId(color.id);
                                   setSelectedColor(color.name);
                                   setSelectedWood(null);
                                 }}
                                 className={`group relative overflow-hidden rounded border transition-all duration-300 ${
-                                  selectedColor === color.name
+                                  selectedCoatingId === color.id
                                     ? 'border-gray-900 ring-1 ring-gray-100 shadow-md scale-105'
                                     : 'border-gray-200 shadow-sm hover:shadow-sm hover:border-gray-400 hover:scale-102'
                                 }`}
                               >
-                                {/* Цветной квадрат */}
-                                <div 
-                                  className="relative"
-                                  style={{ 
-                                    width: '100%',
-                                    aspectRatio: '1/1',
-                                    backgroundColor: color.color,
-                                    border: color.color === '#FFFFFF' ? '1px solid #E5E5E5' : 'none'
-                                  }}
-                                >
+                                {/* Миниатюра — бокс по контуру фото */}
+                                <div className="relative w-full min-h-[60px]">
+                                  {getImageSrc(color.photo_path) ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      loading="lazy"
+                                      src={getImageSrc(color.photo_path)}
+                                      alt={color.name}
+                                      className="w-full h-auto block bg-white"
+                                      onError={(e) => {
+                                        const target = e.currentTarget;
+                                        target.style.display = 'none';
+                                        const fallback = target.nextElementSibling as HTMLElement | null;
+                                        if (fallback) fallback.style.display = 'block';
+                                      }}
+                                    />
+                                  ) : null}
+                                  <div
+                                    className="w-full min-h-[60px]"
+                                    style={{
+                                      display: getImageSrc(color.photo_path) ? 'none' : 'block',
+                                      backgroundColor: color.color,
+                                      border: color.color === '#FFFFFF' ? '1px solid #E5E5E5' : 'none',
+                                    }}
+                                  />
                                   {/* Галочка при выборе */}
-                                  {selectedColor === color.name && (
-                                    <div className="absolute top-1 right-1 z-10 animate-in zoom-in duration-300">
-                                      <div className="w-4 h-4 bg-gray-900 rounded-full flex items-center justify-center shadow-sm">
-                                        <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  {selectedCoatingId === color.id && (
+                                    <div className="absolute top-2 right-2 z-10 animate-in zoom-in duration-300">
+                                      <div className="w-5 h-5 bg-gray-900 rounded-full flex items-center justify-center shadow-md">
+                                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                         </svg>
                                       </div>
@@ -1236,10 +1376,11 @@ export default function FigmaExactReplicaPage() {
                                   )}
                                 </div>
                                 {/* Название цвета */}
-                                <div style={{ padding: '4px', background: 'white', textAlign: 'center' }}>
+                                <div style={{ padding: '8px', background: 'white', textAlign: 'center' }}>
                                   <div 
                                     className="font-medium text-gray-900"
-                                    style={{ fontSize: '12px', lineHeight: '1.3' }}
+                                    style={{ fontSize: '12px' }}
+                                    title={color.name}
                                   >
                                     {color.name}
                                   </div>
@@ -1251,7 +1392,7 @@ export default function FigmaExactReplicaPage() {
                       )}
 
                       {/* Древесная палитра (для Шпон) */}
-                      {coatingType === 'шпон' && (
+                      {selectedFinish === 'Шпон' && (
                         <div>
                           <h3 
                             className="mb-4 font-semibold"
@@ -1264,11 +1405,12 @@ export default function FigmaExactReplicaPage() {
                           >
                             ДРЕВЕСНАЯ ПАЛИТРА
                           </h3>
-                          <div className="grid grid-cols-5 gap-1.5">
+                          <div className="grid grid-cols-4 gap-2">
                             {woodOptions.map((wood) => (
                               <button
                                 key={wood.id}
                                 onClick={() => {
+                                  setSelectedCoatingId(wood.id);
                                   setSelectedWood(wood.name);
                                   setSelectedColor(null);
                                 }}
@@ -1278,25 +1420,19 @@ export default function FigmaExactReplicaPage() {
                                     : 'border-gray-200 shadow-sm hover:shadow-sm hover:border-gray-400 hover:scale-102'
                                 }`}
                               >
-                                {/* Миниатюра дерева */}
-                                <div 
-                                  className="relative"
-                                  style={{ 
-                                    width: '100%',
-                                    aspectRatio: '1/1'
-                                  }}
-                                >
+                                {/* Миниатюра дерева — бокс по контуру фото */}
+                                <div className="relative w-full min-h-[60px]">
                                   <img
-                                    src={wood.image}
+                                    loading="lazy"
+                                    src={getImageSrcWithPlaceholder(wood.photo_path, createPlaceholderSvgDataUrl(400, 400, '#8B7355', '#FFFFFF', wood.name))}
                                     alt={wood.name}
-                                    className="w-full h-full object-cover"
-                                    style={{ display: 'block' }}
+                                    className="w-full h-auto block bg-white"
                                   />
                                   {/* Галочка при выборе */}
                                   {selectedWood === wood.name && (
-                                    <div className="absolute top-1 right-1 z-10 animate-in zoom-in duration-300">
-                                      <div className="w-4 h-4 bg-gray-900 rounded-full flex items-center justify-center shadow-sm">
-                                        <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div className="absolute top-2 right-2 z-10 animate-in zoom-in duration-300">
+                                      <div className="w-5 h-5 bg-gray-900 rounded-full flex items-center justify-center shadow-md">
+                                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                         </svg>
                                   </div>
@@ -1304,10 +1440,11 @@ export default function FigmaExactReplicaPage() {
                                   )}
                                 </div>
                                 {/* Название */}
-                                <div style={{ padding: '4px', background: 'white', textAlign: 'center' }}>
+                                <div style={{ padding: '8px', background: 'white', textAlign: 'center' }}>
                                   <div 
                                     className="font-medium text-gray-900"
-                                    style={{ fontSize: '12px', lineHeight: '1.3' }}
+                                    style={{ fontSize: '12px' }}
+                                    title={wood.name}
                                   >
                                     {wood.name}
                                   </div>
@@ -1331,7 +1468,7 @@ export default function FigmaExactReplicaPage() {
                         >
                           АЛЮМИНИЕВАЯ КРОМКА
                         </h3>
-                        <div className="grid grid-cols-5 gap-1.5">
+                        <div className="grid grid-cols-4 gap-2">
                           {edgeOptions.map((edge) => (
                             <button
                               key={edge.id}
@@ -1342,20 +1479,14 @@ export default function FigmaExactReplicaPage() {
                                   : 'border-gray-200 shadow-sm hover:shadow-sm hover:border-gray-400 hover:scale-102'
                               }`}
                             >
-                              {/* Изображение кромки */}
-                              <div 
-                                className="bg-gray-100 relative flex items-center justify-center overflow-hidden"
-                                style={{ 
-                                  width: '100%',
-                                  aspectRatio: '1/1'
-                                }}
-                              >
-                                {edge.image ? (
+                              {/* Изображение кромки — бокс по контуру фото */}
+                              <div className="bg-gray-100 relative overflow-hidden min-h-[48px]">
+                                {getImageSrc(edge.photo_path) ? (
                                   <img
-                                    src={edge.image}
+                                    loading="lazy"
+                                    src={getImageSrc(edge.photo_path)}
                                     alt={edge.name}
-                                    className="w-full h-full object-cover"
-                                    style={{ display: 'block' }}
+                                    className="w-full h-auto block bg-white"
                                     onError={(e) => {
                                       // Fallback на цвет, если изображение не загрузилось
                                       const target = e.target as HTMLImageElement;
@@ -1367,19 +1498,14 @@ export default function FigmaExactReplicaPage() {
                                     }}
                                   />
                                 ) : (
-                                  <div 
-                                    className="w-full h-full flex items-center justify-center"
-                                    style={{ 
-                                      backgroundColor: '#F3F4F6',
-                                    }}
-                                  >
+                                  <div className="w-full min-h-[48px] flex items-center justify-center bg-gray-100">
                                     {edge.id === 'none' && (
                                       <div className="text-gray-400 text-xs">—</div>
                                     )}
                                   </div>
                                 )}
                               </div>
-                              {/* Название кромки */}
+                              {/* Название кромки и наценка */}
                               <div style={{ padding: '4px', background: 'white', textAlign: 'center' }}>
                                 <div 
                                   className="font-medium text-gray-900"
@@ -1387,6 +1513,11 @@ export default function FigmaExactReplicaPage() {
                                 >
                                   {edge.name}
                                 </div>
+                                {(edge.surcharge != null && edge.surcharge > 0) && (
+                                  <div className="text-green-600 font-medium" style={{ fontSize: '11px' }}>
+                                    +{(edge.surcharge as number).toLocaleString('ru-RU')} Р
+                                  </div>
+                                )}
                               </div>
                               {/* Галочка при выборе */}
                               {(selectedEdgeId === edge.id || (edge.id === 'none' && !selectedEdgeId)) && (
@@ -1402,6 +1533,28 @@ export default function FigmaExactReplicaPage() {
                           ))}
                         </div>
                       </div>
+
+                      {/* Цвет стекла (данные из Стекло_доступность; на цену не влияет) */}
+                      {(selectedModelData?.glassColors?.length ?? 0) > 0 && (
+                        <div>
+                          <h3 className="mb-4 font-semibold" style={{ fontFamily: 'Roboto, sans-serif', fontSize: '16px', fontWeight: 600, color: '#3D3A3A' }}>
+                            ЦВЕТ СТЕКЛА
+                          </h3>
+                          <div className="flex flex-wrap gap-2">
+                            {(selectedModelData.glassColors || []).map((colorName) => (
+                              <button
+                                key={colorName}
+                                onClick={() => setSelectedGlassColor(selectedGlassColor === colorName ? null : colorName)}
+                                className={`rounded border px-3 py-2 text-sm font-medium transition ${
+                                  selectedGlassColor === colorName ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white hover:border-gray-400'
+                                }`}
+                              >
+                                {colorName}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1440,11 +1593,10 @@ export default function FigmaExactReplicaPage() {
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-3">
-                          {/* TODO: Добавить комплекты фурнитуры в API */}
-                          {[].map((kit: any) => (
+                          {(configKits || []).map((kit) => (
                             <button
                               key={kit.id}
-                              onClick={() => setSelectedHardwareKit(kit.id)}
+                              onClick={() => setSelectedHardwareKit(selectedHardwareKit === kit.id ? null : kit.id)}
                               className={`group relative overflow-hidden border transition-all duration-300 p-3 text-left`}
                               style={{
                                 borderRadius: 0,
@@ -1472,7 +1624,6 @@ export default function FigmaExactReplicaPage() {
                                 }
                               }}
                             >
-                              {/* Заголовок комплекта */}
                               <div 
                                 className="font-bold mb-2"
                                 style={{
@@ -1484,30 +1635,13 @@ export default function FigmaExactReplicaPage() {
                                 }}
                               >
                                 {kit.name}
-                                  </div>
-                              
-                              {/* Описание комплекта */}
-                              <div className="space-y-1.5" style={{ fontSize: '15px', lineHeight: '1.6', color: '#000000' }}>
-                                <div>{kit.hingesType}</div>
-                                <div>Тип монтажа: {kit.mountingType}</div>
-                                {kit.production && <div>{kit.production}</div>}
-                                <div>Количество: {kit.quantity}</div>
-                                {kit.alloy && <div>Сплав: {kit.alloy}</div>}
-                                <div>{kit.latchType}</div>
                               </div>
-                              
-                              {/* Цена */}
                               <div 
                                 className="mt-4 font-semibold"
-                                style={{
-                                  fontSize: '18px',
-                                  color: '#000000'
-                                }}
+                                style={{ fontSize: '18px', color: '#000000' }}
                               >
-                                {kit.price.toLocaleString('ru-RU')} Р
+                                {kit.price ? `${Number(kit.price).toLocaleString('ru-RU')} Р` : '—'}
                               </div>
-                              
-                                {/* Галочка при выборе */}
                                 {selectedHardwareKit === kit.id && (
                                 <div className="absolute top-2 right-2 animate-in zoom-in duration-300">
                                   <div className="w-4 h-4 bg-gray-900 rounded-full flex items-center justify-center shadow-sm">
@@ -1557,7 +1691,7 @@ export default function FigmaExactReplicaPage() {
                               >
                                 {selectedHandleIdObj && selectedHandleIdObj.name ? (
                                   <img
-                                    src={getHandlePhotoUrl((selectedHandleIdObj as any).photos?.[0] || selectedHandleIdObj.photo_path, selectedHandleIdObj.name)}
+                                    src={getHandleImageSrc((selectedHandleIdObj as any).photos?.[0] || selectedHandleIdObj.photo_path, selectedHandleIdObj.name)}
                                     alt={selectedHandleIdObj.name}
                                     className="w-full h-full object-contain"
                                     style={{ transform: 'scaleX(-1)' }}
@@ -1721,30 +1855,30 @@ export default function FigmaExactReplicaPage() {
                         {architraveOptions.map((architrave) => (
                           <button
                             key={architrave.id}
-                            onClick={() => setSelectedArchitraveId(architrave.name)}
+                            onClick={() => setSelectedArchitraveId(architrave.id)}
                             className={`group relative overflow-hidden rounded-lg border-2 transition-all duration-300 ${
-                              selectedArchitraveId === architrave.name
+                              selectedArchitraveId === architrave.id
                                 ? 'border-gray-900 ring-2 ring-gray-100 shadow-lg scale-105'
                                 : 'border-gray-200 shadow-sm hover:shadow-md hover:border-gray-400 hover:scale-102'
                             }`}
                           >
-                            {/* Миниатюра наличника */}
-                            <div 
-                              className="bg-gray-100 relative flex items-center justify-center overflow-hidden"
-                              style={{ 
-                                width: '100%',
-                                aspectRatio: '1/1'
-                              }}
-                            >
+                            {/* Миниатюра наличника — бокс по контуру фото */}
+                            <div className="bg-gray-100 relative overflow-hidden min-h-[48px]">
                               <img
-                                src={architrave.image}
+                                loading="lazy"
+                                src={getImageSrcWithPlaceholder((architrave as { photo_path?: string | null }).photo_path, createPlaceholderSvgDataUrl(300, 300, '#E2E8F0', '#1A202C', (architrave as { name: string }).name))}
                                 alt={architrave.name}
-                                className="w-full h-full object-cover"
-                                style={{ display: 'block' }}
+                                className="w-full h-auto block bg-white"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                }}
                               />
-                              <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                                <div className="text-gray-400 text-2xl">🚪</div>
-                              </div>
+                              {!getImageSrc((architrave as { photo_path?: string | null }).photo_path) && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-gray-100 pointer-events-none">
+                                  <span className="text-gray-400 text-2xl">🚪</span>
+                                </div>
+                              )}
                             </div>
                             {/* Название наличника */}
                             <div style={{ padding: '8px', background: 'white', textAlign: 'center' }}>
@@ -1756,7 +1890,7 @@ export default function FigmaExactReplicaPage() {
                               </div>
                             </div>
                             {/* Галочка при выборе */}
-                            {selectedArchitraveId === architrave.name && (
+                            {selectedArchitraveId === architrave.id && (
                               <div className="absolute top-2 right-2 z-10 animate-in zoom-in duration-300">
                                 <div className="w-5 h-5 bg-gray-900 rounded-full flex items-center justify-center shadow-md">
                                   <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1804,24 +1938,18 @@ export default function FigmaExactReplicaPage() {
                               }`}
                             >
                               <div className="flex flex-col items-center gap-1.5">
-                                {stopper.image && (
-                                  <div 
-                                    className="bg-gray-100 relative flex items-center justify-center overflow-hidden rounded"
-                                    style={{ 
-                                      width: '100%',
-                                      aspectRatio: '1/1',
-                                      flexShrink: 0
-                                    }}
-                                  >
+                                {stopper.id !== 'none' && (
+                                  <div className="bg-gray-100 relative overflow-hidden rounded min-h-[48px] w-full flex-shrink-0">
                                     <img
-                                      src={stopper.image}
+                                      loading="lazy"
+                                      src={getImageSrcWithPlaceholder(stopper.photo_path, createPlaceholderSvgDataUrl(200, 200, '#1A202C', '#FFFFFF', stopper.name))}
                                       alt={stopper.name}
-                                      className="w-full h-full object-cover"
-                                      style={{ display: 'block' }}
+                                      className="w-full h-auto block bg-white"
+                                      onError={(e) => {
+                                        const target = e.target as HTMLImageElement;
+                                        target.style.display = 'none';
+                                      }}
                                     />
-                                    <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                                      <div className="text-gray-400 text-xs">🔒</div>
-                                    </div>
                                   </div>
                                 )}
                                 <div className="text-center">
@@ -2014,23 +2142,33 @@ export default function FigmaExactReplicaPage() {
 
             {/* Правая колонка - превью и параметры */}
             <div style={{ flex: '1', display: 'flex', gap: '24px' }}>
-              {/* Большое превью - вертикальное изображение двери */}
+              {/* Большое превью — бокс по контуру фото */}
               <div style={{ flex: '0 0 338px' }}>
                 <div className="sticky" style={{ top: '32px' }}>
                   <div 
-                    className="rounded-2xl overflow-hidden border-2 border-gray-200 shadow-2xl bg-white transition-all duration-300 hover:shadow-3xl relative"
-                    style={{ 
-                      width: '338px', 
-                      aspectRatio: '1/2' // Соотношение 2:1 (высота в 2 раза больше ширины)
-                    }}
+                    className="overflow-hidden border-2 border-gray-200 shadow-2xl bg-white transition-all duration-300 hover:shadow-3xl relative min-h-[200px]"
+                    style={{ width: '338px' }}
                   >
                     {(() => {
-                      // TODO: Добавить фото модели в БД
+                      const coatingPhoto = selectedCoatingId ? coatings.find(c => c.id === selectedCoatingId)?.photo_path : null;
+                      const previewSrc = getImageSrc(coatingPhoto) || getImageSrc(selectedModelData?.photo);
+                      const previewPlaceholder = createPlaceholderSvgDataUrl(338, 676, '#E2E8F0', '#4A5568', selectedModel || 'Выберите модель');
                       return (
-                        <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-200 to-gray-300">
-                          <div className="text-gray-500 text-8xl mb-4">🚪</div>
-                          <div className="text-gray-700 text-lg font-semibold">{selectedModel || 'Выберите модель'}</div>
-                        </div>
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={previewSrc || previewPlaceholder}
+                          alt={selectedModel || 'Модель двери'}
+                          className="w-full h-auto block bg-white cursor-zoom-in"
+                          onClick={() => {
+                            if (previewSrc) {
+                              setZoomPreviewSrc(previewSrc);
+                              setZoomPreviewAlt(selectedModel || 'Модель двери');
+                            }
+                          }}
+                          onError={(e) => {
+                            if (e.currentTarget.src !== previewPlaceholder) e.currentTarget.src = previewPlaceholder;
+                          }}
+                        />
                       );
                     })()}
                   </div>
@@ -2095,9 +2233,10 @@ export default function FigmaExactReplicaPage() {
                       { label: 'Полотно', value: selectedModel },
                       { label: 'Размеры', value: `${width} × ${height} мм` },
                       { label: 'Реверсные двери', value: reversible ? 'Да' : 'Нет' },
-                      { label: 'Наполнение', value: getFillingText() },
+                      { label: 'Наполнение', value: selectedFilling || getFillingText() },
                       { label: 'Покрытие и цвет', value: getCoatingText() },
                       { label: 'Алюминиевая кромка', value: getEdgeText() },
+                      { label: 'Цвет стекла', value: selectedGlassColor ?? ((selectedModelData?.glassColors?.length ?? 0) > 0 ? 'Не выбран' : '—') },
                       { label: 'Комплект фурнитуры', value: getHardwareKitText() },
                       { label: 'Ручка', value: getHandleText() },
                       { label: 'Наличник', value: (selectedArchitraveId ? architraveOptions.find(a => a.id === selectedArchitraveId)?.name : null) || 'Не выбран' },
@@ -2192,7 +2331,7 @@ export default function FigmaExactReplicaPage() {
                   <div className="mb-4">
                     <button 
                       onClick={addToCart}
-                      disabled={!selectedModelId || !priceData}
+                      disabled={!canCalculatePrice || !priceData}
                       className="w-full font-semibold transition-all duration-200 flex items-center justify-center gap-2"
                       style={{ 
                         fontFamily: designTokens.typography.fontFamily.sans.join(', '),
@@ -2200,22 +2339,22 @@ export default function FigmaExactReplicaPage() {
                         fontWeight: designTokens.typography.fontWeight.semibold,
                         letterSpacing: '0.01em',
                         padding: `${designTokens.spacing[3]} ${designTokens.spacing[4]}`,
-                        backgroundColor: (!selectedModelId || !priceData) ? designTokens.colors.gray[400] : designTokens.colors.black[950],
+                        backgroundColor: (!canCalculatePrice || !priceData) ? designTokens.colors.gray[400] : designTokens.colors.black[950],
                         color: '#FFFFFF',
                         borderRadius: designTokens.borderRadius.lg,
                         boxShadow: designTokens.boxShadow.md,
                         border: 'none',
-                        cursor: (!selectedModelId || !priceData) ? 'not-allowed' : 'pointer'
+                        cursor: (!canCalculatePrice || !priceData) ? 'not-allowed' : 'pointer'
                       }}
-                      onMouseEnter={(e) => {
-                        if (selectedModelId && priceData) {
+onMouseEnter={(e) => {
+                          if (canCalculatePrice && priceData) {
                           e.currentTarget.style.backgroundColor = designTokens.colors.gray[800];
                           e.currentTarget.style.boxShadow = designTokens.boxShadow.lg;
                           e.currentTarget.style.transform = 'translateY(-1px)';
                         }
                       }}
                       onMouseLeave={(e) => {
-                        if (selectedModelId && priceData) {
+                        if (canCalculatePrice && priceData) {
                           e.currentTarget.style.backgroundColor = designTokens.colors.black[950];
                           e.currentTarget.style.boxShadow = designTokens.boxShadow.md;
                           e.currentTarget.style.transform = 'translateY(0)';
@@ -2305,6 +2444,7 @@ export default function FigmaExactReplicaPage() {
                 price: handle.price_rrc || handle.price_opt || 0,
                 isBasic: false,
                 showroom: true,
+                photos: handle.photo_path ? [handle.photo_path] : [],
               });
             });
             return grouped;
@@ -2413,6 +2553,30 @@ export default function FigmaExactReplicaPage() {
             setShowClientManager(false);
           }}
         />
+      )}
+
+      {zoomPreviewSrc && (
+        <div
+          className="fixed inset-0 z-[10000] bg-black/90 p-4 flex items-center justify-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setZoomPreviewSrc(null);
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomPreviewSrc}
+            alt={zoomPreviewAlt}
+            className="max-w-full max-h-full object-contain"
+          />
+          <button
+            type="button"
+            className="absolute top-4 right-4 text-white bg-white/20 hover:bg-white/30 rounded-full w-10 h-10 text-xl"
+            onClick={() => setZoomPreviewSrc(null)}
+            aria-label="Закрыть увеличенное фото"
+          >
+            ×
+          </button>
+        </div>
       )}
 
       </div>

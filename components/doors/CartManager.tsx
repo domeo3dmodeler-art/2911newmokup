@@ -962,7 +962,9 @@ export function CartManager({
                             {handle.photos.slice(0, 3).map((photo, idx) => (
                               <img
                                 key={idx}
-                                src={photo && photo.startsWith('/uploadsproducts')
+                                src={photo && (photo.startsWith('http://') || photo.startsWith('https://'))
+                                  ? photo
+                                  : photo && photo.startsWith('/uploadsproducts')
                                   ? `/api/uploads/products/${photo.substring(17)}`
                                   : photo && photo.startsWith('/uploads/')
                                   ? `/api${photo}`

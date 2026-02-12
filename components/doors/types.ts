@@ -43,13 +43,24 @@ export type CartItem = {
   qty: number;
   unitPrice: number;
   handleId?: string;
-  handleName?: string; // Добавляем название ручки
+  handleName?: string;
   sku_1c?: string | number | null;
-  // edge?: string;
-  // edge_note?: string;
   hardwareKitId?: string;
-  hardwareKitName?: string; // Добавляем название комплекта фурнитуры
-  baseAtAdd: number;
+  hardwareKitName?: string;
+  baseAtAdd?: number;
+  /** Кромка (да/нет) */
+  edge?: string;
+  limiterId?: string;
+  coatingId?: string;
+  edgeId?: string;
+  /** ID опций-товаров (только наличники); зеркало/порог не отдельные строки */
+  optionIds?: string[];
+  /** Реверс двери — учтён в цене */
+  reversible?: boolean;
+  /** Зеркало: 'one' | 'both' и т.д. — учтено в цене, не отдельная строка */
+  mirror?: string;
+  /** Порог — учтён в цене, не отдельная строка */
+  threshold?: boolean;
 };
 
 export type DomainKits = { id: string; name: string; group?: number; price_rrc?: number }[];

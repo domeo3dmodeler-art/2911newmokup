@@ -97,22 +97,28 @@ export const resetDependentParams = (currentSel: Partial<BasicState>, changedPar
   return newSel;
 };
 
-// Функция для форматирования названия модели под карточкой (убираем префикс DomeoDoors)
+// Форматирование кода модели Domeo (Web) для отображения в UI (DomeoDoors_Base_1 → Base 1)
 export const formatModelNameForCard = (modelName: string): string => {
+  if (!modelName || typeof modelName !== 'string') return '';
   return modelName
-    .replace(/^DomeoDoors\s*/i, '') // Убираем префикс DomeoDoors с любыми пробелами после него
-    .replace(/^Domeodoors\s*/i, '') // Убираем префикс Domeodoors с любыми пробелами после него
-    .replace(/_/g, ' ') // Заменяем подчеркивания на пробелы
-    .trim(); // Убираем лишние пробелы
+    .replace(/^DomeoDoors_/i, '')
+    .replace(/^Domeodoors_/i, '')
+    .replace(/^DomeoDoors\s*/i, '')
+    .replace(/^Domeodoors\s*/i, '')
+    .replace(/_/g, ' ')
+    .trim() || modelName;
 };
 
-// Функция для форматирования названия модели над большим фото (убираем префикс DomeoDoors)
+// То же для превью
 export const formatModelNameForPreview = (modelName: string): string => {
+  if (!modelName || typeof modelName !== 'string') return '';
   return modelName
-    .replace(/^DomeoDoors\s*/i, '') // Убираем префикс DomeoDoors с любыми пробелами после него
-    .replace(/^Domeodoors\s*/i, '') // Убираем префикс Domeodoors с любыми пробелами после него
-    .replace(/_/g, ' ') // Заменяем подчеркивания на пробелы
-    .trim(); // Убираем лишние пробелы
+    .replace(/^DomeoDoors_/i, '')
+    .replace(/^Domeodoors_/i, '')
+    .replace(/^DomeoDoors\s*/i, '')
+    .replace(/^Domeodoors\s*/i, '')
+    .replace(/_/g, ' ')
+    .trim() || modelName;
 };
 
 export const imageCandidates = (obj: { sku_1c?: string | number | null; model?: string | null }): string[] => {

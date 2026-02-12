@@ -28,6 +28,8 @@ export function DoorPreview({
   setHideSidePanels,
   handleModelSelect,
 }: DoorPreviewProps) {
+  const [zoomSrc, setZoomSrc] = React.useState<string | null>(null);
+
   return (
     <section className={`transition-all duration-300 ${
       hideSidePanels ? 'lg:col-span-1' : 'lg:col-span-1'
@@ -69,16 +71,21 @@ export function DoorPreview({
                     }
                     
                     if (selectedModelCard && selectedModelCard.photo) {
+                      const photo = selectedModelCard.photo;
+                      const src = photo.startsWith('http://') || photo.startsWith('https://')
+                        ? photo
+                        : photo.startsWith('/uploadsproducts')
+                        ? `/api/uploads/products/${photo.substring(17)}`
+                        : photo.startsWith('/uploads/')
+                        ? `/api${photo}`
+                        : `/api/uploads${photo}`;
                       return (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={selectedModelCard.photo.startsWith('/uploadsproducts') 
-                            ? `/api/uploads/products/${selectedModelCard.photo.substring(17)}`
-                            : selectedModelCard.photo.startsWith('/uploads/')
-                            ? `/api${selectedModelCard.photo}`
-                            : `/api/uploads${selectedModelCard.photo}`}
+                          src={src}
                           alt={selectedModelCard.model || 'Дверь'}
-                          className="h-full w-full object-contain"
+                          className="h-full w-full object-contain cursor-zoom-in"
+                          onClick={() => setZoomSrc(src)}
                         />
                       );
                     }
@@ -124,6 +131,25 @@ export function DoorPreview({
           )}
         </div>
       </div>
+      {zoomSrc && (
+        <div
+          className="fixed inset-0 z-[10000] bg-black/90 p-4 flex items-center justify-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setZoomSrc(null);
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={zoomSrc} alt={selectedModelCard?.model || 'Дверь'} className="max-w-full max-h-full object-contain" />
+          <button
+            type="button"
+            className="absolute top-4 right-4 text-white bg-white/20 hover:bg-white/30 rounded-full w-10 h-10 text-xl"
+            onClick={() => setZoomSrc(null)}
+            aria-label="Закрыть увеличенное фото"
+          >
+            ×
+          </button>
+        </div>
+      )}
     </section>
   );
 }

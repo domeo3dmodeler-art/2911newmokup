@@ -8,10 +8,33 @@ import type { DoorModel, DoorCoating, DoorEdge, DoorOption, DoorHandle, DoorLimi
 /**
  * Хук для загрузки базовых данных конфигуратора (модели, ручки, ограничители)
  */
+/** Опции по модели (реверс, зеркало, порог, наполнение) — из листа «Опции», агрегированы по всем товарам модели */
+export interface DoorModelOptions {
+  revers_available?: boolean;
+  revers_surcharge_rub?: number;
+  threshold_available?: boolean;
+  threshold_price_rub?: number;
+  mirror_available?: boolean;
+  mirror_one_rub?: number;
+  mirror_both_rub?: number;
+  /** Первое/основное наполнение (для обратной совместимости) */
+  filling_name?: string;
+}
+
+/** Расширение модели из complete-data: опции + список всех наполнений модели */
+export type DoorModelWithOptions = DoorModel & {
+  doorOptions?: DoorModelOptions;
+  /** Все варианты наполнения по модели (объединение по товарам с одним Код модели Domeo (Web)) */
+  filling_names?: string[];
+};
+
 export function useConfiguratorData() {
-  const [models, setModels] = useState<DoorModel[]>([]);
+  const [models, setModels] = useState<DoorModelWithOptions[]>([]);
+  const [rawModels, setRawModels] = useState<any[]>([]);
   const [handles, setHandles] = useState<DoorHandle[]>([]);
   const [limiters, setLimiters] = useState<DoorLimiter[]>([]);
+  const [architraves, setArchitraves] = useState<DoorOption[]>([]);
+  const [kits, setKits] = useState<Array<{ id: string; name: string; price: number; priceGroup?: string; isBasic?: boolean }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -23,61 +46,117 @@ export function useConfiguratorData() {
         setLoading(true);
         setError(null);
 
-        // Загружаем модели (публичный endpoint)
-        const modelsResponse = await fetch('/api/catalog/doors/complete-data');
-        if (!modelsResponse.ok) {
+        // Параллельная загрузка: модели и вся фурнитура одновременно
+        const [modelsResponse, handlesRes, limitersRes, architravesRes, kitsRes] = await Promise.all([
+          fetch('/api/catalog/doors/complete-data'),
+          fetch('/api/catalog/hardware?type=handles'),
+          fetch('/api/catalog/hardware?type=limiters'),
+          fetch('/api/catalog/hardware?type=architraves'),
+          fetch('/api/catalog/hardware?type=kits'),
+        ]);
+
+        if (!cancelled && modelsResponse.ok) {
+          const responseData = await modelsResponse.json();
+          const modelsData = parseApiResponse<{ ok?: boolean; models: any[]; totalModels?: number; styles?: string[] }>(responseData);
+          if (modelsData && (modelsData.ok !== false) && modelsData.models && Array.isArray(modelsData.models)) {
+            setRawModels(modelsData.models);
+            setModels(modelsData.models.map((m: any) => ({
+              id: m.modelKey || m.model || String(Math.random()),
+              model_name: m.model || '',
+              style: m.style || '',
+              photo: m.photo || m.photos?.cover || null,
+              photos: m.photos || { cover: m.photo, gallery: [] },
+              sizes: m.products?.map((p: any) => ({
+                width: Number(p.properties?.['Ширина/мм']) || 800,
+                height: Number(p.properties?.['Высота/мм']) || 2000,
+              })).filter((s: any) => s.width && s.height) || [],
+              doorOptions: m.doorOptions,
+            })));
+          }
+        } else if (!modelsResponse.ok && !cancelled) {
           throw new Error(`HTTP error! status: ${modelsResponse.status}`);
         }
-        const responseData = await modelsResponse.json();
-        const modelsData = parseApiResponse<{ ok?: boolean; models: any[]; totalModels?: number; styles?: string[] }>(responseData);
-        
-        if (!cancelled && modelsData && (modelsData.ok !== false) && modelsData.models && Array.isArray(modelsData.models)) {
-          // Преобразуем данные моделей в нужный формат
-          const formattedModels: DoorModel[] = modelsData.models.map((m: any) => ({
-            id: m.modelKey || m.model || String(Math.random()),
-            model_name: m.model || '',
-            style: m.style || '',
-            photo: m.photo || m.photos?.cover || null,
-            photos: m.photos || { cover: m.photo, gallery: [] },
-            sizes: m.products?.map((p: any) => ({
-              width: Number(p.properties?.['Ширина/мм']) || 800,
-              height: Number(p.properties?.['Высота/мм']) || 2000,
-            })).filter((s: any) => s.width && s.height) || []
-          }));
-          setModels(formattedModels);
+
+        if (!cancelled && handlesRes.ok) {
+          try {
+            const handlesData = await handlesRes.json();
+            const grouped = parseApiResponse<Record<string, Array<{ id: string; name: string; group?: string; price?: number; photos?: string[] }>>>(handlesData);
+            if (grouped && typeof grouped === 'object') {
+              const flat: DoorHandle[] = [];
+              for (const group of Object.values(grouped)) {
+                if (Array.isArray(group)) {
+                  for (const h of group) {
+                    flat.push({
+                      id: h.id || '',
+                      name: h.name || '',
+                      photo_path: (h.photos && h.photos[0]) ? h.photos[0] : null,
+                      price_rrc: Number(h.price) || 0,
+                      price_opt: 0,
+                      series: h.group,
+                    });
+                  }
+                }
+              }
+              setHandles(flat);
+            }
+          } catch {
+            setHandles([]);
+          }
         }
 
-        // Загружаем опции (ручки и ограничители) - требует авторизацию
-        try {
-          const optionsResponse = await fetchWithAuth('/api/catalog/doors/options', undefined, true);
-          if (!optionsResponse.ok) {
-            throw new Error(`HTTP error! status: ${optionsResponse.status}`);
-          }
-          const optionsResponseData = await optionsResponse.json();
-          const optionsData = parseApiResponse<{ domain?: any; ok?: boolean }>(optionsResponseData);
-          
-          if (!cancelled && optionsData && optionsData.domain) {
-            // Ручки из domain.handles
-            if (optionsData.domain.handles) {
-              const formattedHandles: DoorHandle[] = optionsData.domain.handles.map((h: any) => ({
-                id: h.id || String(Math.random()),
-                name: h.name || '',
-                photo_path: null,
-                price_rrc: h.price_rrc || 0,
-                price_opt: h.price_opt || 0,
-              }));
-              setHandles(formattedHandles);
+        if (!cancelled && limitersRes.ok) {
+          try {
+            const limitersData = await limitersRes.json();
+            const list = parseApiResponse<Array<{ id: string; name: string; photo_path?: string | null; price_rrc?: number; price_opt?: number }>>(limitersData);
+            if (Array.isArray(list)) {
+              setLimiters(list.map((l) => ({
+                id: l.id,
+                name: l.name || '',
+                photo_path: l.photo_path ?? null,
+                price_rrc: l.price_rrc ?? 0,
+                price_opt: l.price_opt ?? 0,
+              })));
             }
-
-            // Ограничители нужно загрузить отдельно (если есть API)
-            // Пока оставляем пустым или используем моковые данные
+          } catch {
             setLimiters([]);
           }
-        } catch (optionsError) {
-          // Если не авторизован, просто не загружаем ручки и ограничители
-          console.warn('Не удалось загрузить опции (требуется авторизация):', optionsError);
-          setHandles([]);
-          setLimiters([]);
+        }
+
+        if (!cancelled && architravesRes.ok) {
+          try {
+            const architravesData = await architravesRes.json();
+            const list = parseApiResponse<Array<{ id: string; option_type?: string; option_name?: string; price_surcharge?: number; photo_path?: string | null }>>(architravesData);
+            if (Array.isArray(list)) {
+              setArchitraves(list.map((a) => ({
+                id: a.id,
+                option_type: a.option_type || 'наличники',
+                option_name: a.option_name || '',
+                name: a.option_name || a.name || '',
+                price_surcharge: a.price_surcharge,
+                photo_path: a.photo_path ?? null,
+              })));
+            }
+          } catch {
+            setArchitraves([]);
+          }
+        }
+
+        if (!cancelled && kitsRes.ok) {
+          try {
+            const kitsData = await kitsRes.json();
+            const list = parseApiResponse<Array<{ id: string; name: string; price?: number; priceGroup?: string; isBasic?: boolean }>>(kitsData);
+            if (Array.isArray(list)) {
+              setKits(list.map((k) => ({
+                id: k.id,
+                name: k.name || '',
+                price: Number(k.price) || 0,
+                priceGroup: k.priceGroup,
+                isBasic: k.isBasic,
+              })));
+            }
+          } catch {
+            setKits([]);
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -97,26 +176,156 @@ export function useConfiguratorData() {
     };
   }, []);
 
-  return { models, handles, limiters, loading, error };
+  return { models, rawModels, handles, limiters, architraves, kits, loading, error };
 }
 
 /**
  * Хук для загрузки деталей модели (покрытия, кромки, опции)
  */
-export function useModelDetails(modelId: string | null) {
+/** Типы покрытия и цвета по типам для одной модели (из листа "Цвет") */
+export interface ColorsByFinish {
+  [coatingType: string]: Array<{ id: string; color_name: string; photo_path: string | null }>;
+}
+
+function applyFoundModel(
+  foundModel: any,
+  modelId: string,
+  setModel: (m: DoorModel | null) => void,
+  setCoatings: (c: DoorCoating[]) => void,
+  setEdges: (e: DoorEdge[]) => void,
+  setOptions: (o: DoorOption[]) => void,
+  setFinishes: (f: string[]) => void,
+  setColorsByFinish: (c: ColorsByFinish) => void
+) {
+  const formattedModel: DoorModel = {
+    id: foundModel.modelKey || foundModel.model || modelId,
+    model_name: foundModel.model || '',
+    style: foundModel.style || '',
+    photo: foundModel.photo || foundModel.photos?.cover || null,
+    photos: foundModel.photos || { cover: foundModel.photo, gallery: [] },
+    sizes: foundModel.products?.map((p: any) => ({
+      width: Number(p.properties?.['Ширина/мм']) || 800,
+      height: Number(p.properties?.['Высота/мм']) || 2000,
+    })).filter((s: any) => s.width && s.height) || [],
+    glassColors: Array.isArray(foundModel.glassColors) ? foundModel.glassColors : [],
+    revers_available: foundModel.doorOptions?.revers_available ?? false,
+    edge_in_base: foundModel.edge_in_base === true,
+  };
+  setModel(formattedModel);
+
+  const coatingsMap = new Map<string, DoorCoating>();
+  const edgesMap = new Map<string, DoorEdge>();
+
+  if (foundModel.coatings && Array.isArray(foundModel.coatings) && foundModel.coatings.length > 0) {
+    foundModel.coatings.forEach((c: { id?: string; coating_type?: string; color_name?: string; photo_path?: string | null }) => {
+      const key = c.id || `${c.coating_type}_${c.color_name}`;
+      coatingsMap.set(key, {
+        id: key,
+        coating_type: c.coating_type || '',
+        color_name: c.color_name || '',
+        photo_path: c.photo_path ?? null,
+      });
+    });
+  } else {
+    foundModel.products?.forEach((product: any) => {
+      const props = product.properties || {};
+      if (props['Тип покрытия'] && props['Domeo_Цвет']) {
+        const coatingKey = `${props['Тип покрытия']}_${props['Domeo_Цвет']}`;
+        if (!coatingsMap.has(coatingKey)) {
+          coatingsMap.set(coatingKey, {
+            id: coatingKey,
+            coating_type: props['Тип покрытия'] || '',
+            color_name: props['Domeo_Цвет'] || '',
+            photo_path: null,
+          });
+        }
+      }
+    });
+  }
+
+  if (foundModel.edge_options && Array.isArray(foundModel.edge_options) && foundModel.edge_options.length > 0) {
+    setEdges(foundModel.edge_options.map((e: { id: string; name: string; surcharge?: number }) => ({
+      id: e.id,
+      edge_color_name: e.name,
+      surcharge: e.surcharge ?? 0,
+      photo_path: null as string | null,
+    })));
+  } else {
+    foundModel.products?.forEach((product: any) => {
+      const props = product.properties || {};
+      if (props['Кромка'] && props['Кромка'] !== '-' && props['Кромка'] !== '') {
+        const edgeKey = props['Кромка'];
+        if (!edgesMap.has(edgeKey)) {
+          edgesMap.set(edgeKey, {
+            id: edgeKey,
+            edge_color_name: props['Кромка'] || '',
+            surcharge: undefined,
+            photo_path: null,
+          });
+        }
+      }
+    });
+    setEdges(Array.from(edgesMap.values()));
+  }
+
+  setCoatings(Array.from(coatingsMap.values()));
+
+  const doorOpts = foundModel.doorOptions;
+  const optsList: DoorOption[] = [];
+  if (doorOpts?.mirror_available) {
+    optsList.push({ id: 'mirror_one', option_type: 'зеркало', option_name: 'Одна сторона', price_surcharge: doorOpts.mirror_one_rub || 0 });
+    optsList.push({ id: 'mirror_both', option_type: 'зеркало', option_name: 'Две стороны', price_surcharge: doorOpts.mirror_both_rub || 0 });
+  }
+  if (doorOpts?.threshold_available) {
+    optsList.push({ id: 'threshold', option_type: 'порог', option_name: 'Порог', price_surcharge: doorOpts.threshold_price_rub || 0 });
+  }
+  setOptions(optsList);
+
+  const apiFinishes = foundModel.options?.finishes ?? (foundModel.colorsByFinish ? Object.keys(foundModel.colorsByFinish || {}).sort() : [...new Set(Array.from(coatingsMap.values()).map((c) => c.coating_type))].filter(Boolean).sort());
+  setFinishes(apiFinishes);
+  setColorsByFinish(
+    foundModel.colorsByFinish || foundModel.options?.colorsByFinish || (() => {
+      const byFinish: ColorsByFinish = {};
+      coatingsMap.forEach((c) => {
+        const t = c.coating_type || '';
+        if (!t) return;
+        if (!byFinish[t]) byFinish[t] = [];
+        byFinish[t].push({ id: c.id, color_name: c.color_name, photo_path: c.photo_path ?? null });
+      });
+      return byFinish;
+    })()
+  );
+}
+
+export function useModelDetails(modelId: string | null, rawModels?: any[]) {
   const [model, setModel] = useState<DoorModel | null>(null);
   const [coatings, setCoatings] = useState<DoorCoating[]>([]);
+  const [finishes, setFinishes] = useState<string[]>([]);
+  const [colorsByFinish, setColorsByFinish] = useState<ColorsByFinish>({});
   const [edges, setEdges] = useState<DoorEdge[]>([]);
   const [options, setOptions] = useState<DoorOption[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Если есть rawModels и выбран modelId — берём данные из кэша, без повторного запроса
   useEffect(() => {
     if (!modelId) {
       setModel(null);
       setCoatings([]);
+      setFinishes([]);
+      setColorsByFinish({});
       setEdges([]);
       setOptions([]);
       return;
+    }
+    if (rawModels && rawModels.length > 0) {
+      const foundModel = rawModels.find((m: any) =>
+        (m.modelKey || m.model) === modelId || m.model === modelId
+      );
+      if (foundModel) {
+        setLoading(false);
+        applyFoundModel(foundModel, modelId, setModel, setCoatings, setEdges, setOptions, setFinishes, setColorsByFinish);
+        return;
+      }
     }
 
     let cancelled = false;
@@ -125,7 +334,6 @@ export function useModelDetails(modelId: string | null) {
       try {
         setLoading(true);
 
-        // Загружаем полные данные моделей (публичный endpoint)
         const response = await fetch('/api/catalog/doors/complete-data');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -134,62 +342,11 @@ export function useModelDetails(modelId: string | null) {
         const data = parseApiResponse<{ ok?: boolean; models: any[]; totalModels?: number; styles?: string[] }>(responseData);
 
         if (!cancelled && data && (data.ok !== false) && data.models && Array.isArray(data.models)) {
-          // Находим нужную модель
-          const foundModel = data.models.find((m: any) => 
+          const foundModel = data.models.find((m: any) =>
             (m.modelKey || m.model) === modelId || m.model === modelId
           );
-
           if (foundModel) {
-            const formattedModel: DoorModel = {
-              id: foundModel.modelKey || foundModel.model || modelId,
-              model_name: foundModel.model || '',
-              style: foundModel.style || '',
-              photo: foundModel.photo || foundModel.photos?.cover || null,
-              photos: foundModel.photos || { cover: foundModel.photo, gallery: [] },
-              sizes: foundModel.products?.map((p: any) => ({
-                width: Number(p.properties?.['Ширина/мм']) || 800,
-                height: Number(p.properties?.['Высота/мм']) || 2000,
-              })).filter((s: any) => s.width && s.height) || []
-            };
-            setModel(formattedModel);
-
-            // Извлекаем покрытия, кромки и опции из продуктов модели
-            const coatingsMap = new Map<string, DoorCoating>();
-            const edgesMap = new Map<string, DoorEdge>();
-            const optionsMap = new Map<string, DoorOption>();
-
-            foundModel.products?.forEach((product: any) => {
-              const props = product.properties || {};
-
-              // Покрытия
-              if (props['Тип покрытия'] && props['Domeo_Цвет']) {
-                const coatingKey = `${props['Тип покрытия']}_${props['Domeo_Цвет']}`;
-                if (!coatingsMap.has(coatingKey)) {
-                  coatingsMap.set(coatingKey, {
-                    id: coatingKey,
-                    coating_type: props['Тип покрытия'] || '',
-                    color_name: props['Domeo_Цвет'] || '',
-                    photo_path: null,
-                  });
-                }
-              }
-
-              // Кромки
-              if (props['Кромка'] && props['Кромка'] !== '-' && props['Кромка'] !== '') {
-                const edgeKey = props['Кромка'];
-                if (!edgesMap.has(edgeKey)) {
-                  edgesMap.set(edgeKey, {
-                    id: edgeKey,
-                    edge_color_name: props['Кромка'] || '',
-                    photo_path: null,
-                  });
-                }
-              }
-            });
-
-            setCoatings(Array.from(coatingsMap.values()));
-            setEdges(Array.from(edgesMap.values()));
-            setOptions([]); // Опции нужно загружать отдельно
+            applyFoundModel(foundModel, modelId, setModel, setCoatings, setEdges, setOptions, setFinishes, setColorsByFinish);
           }
         }
       } catch (err) {
@@ -206,9 +363,9 @@ export function useModelDetails(modelId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [modelId]);
+  }, [modelId, rawModels]);
 
-  return { model, coatings, edges, options, loading };
+  return { model, coatings, finishes, colorsByFinish, edges, options, loading };
 }
 
 /**
@@ -216,13 +373,26 @@ export function useModelDetails(modelId: string | null) {
  */
 export interface PriceCalculationParams {
   door_model_id?: string;
+  style?: string;
+  finish?: string;
+  /** Название цвета (Domeo_Цвет) для точного подбора товара */
+  color?: string;
   coating_id?: string;
   edge_id?: string;
+  /** ID опций-товаров (наличники); зеркало/порог передаются отдельно mirror/threshold */
   option_ids?: string[];
   handle_id?: string;
   limiter_id?: string;
   width?: number;
   height?: number;
+  /** Реверс двери — надбавка из опций модели */
+  reversible?: boolean;
+  /** Зеркало: 'none' | 'one' | 'both' (или 'mirror_one'/'mirror_both') — опция, не отдельная строка в корзине */
+  mirror?: 'none' | 'one' | 'both' | 'mirror_one' | 'mirror_both';
+  /** Порог — опция, не отдельная строка в корзине */
+  threshold?: boolean;
+  /** Комплект фурнитуры (отдельный товар в корзине) */
+  hardware_kit_id?: string;
 }
 
 /**
@@ -252,16 +422,23 @@ export function usePriceCalculation() {
     try {
       setCalculating(true);
 
-      // Преобразуем параметры в формат API
+      // Преобразуем параметры в формат API (model = Код модели Domeo (Web))
       const selection: any = {
         model: params.door_model_id,
       };
-
+      if (params.style) selection.style = params.style;
+      if (params.finish) selection.finish = params.finish;
+      if (params.color) selection.color = params.color;
       if (params.width) selection.width = params.width;
       if (params.height) selection.height = params.height;
-      if (params.handle_id) {
-        selection.handle = { id: params.handle_id };
-      }
+      if (params.edge_id) selection.edge_id = params.edge_id;
+      if (params.limiter_id) selection.limiter_id = params.limiter_id;
+      if (params.option_ids?.length) selection.option_ids = params.option_ids;
+      if (params.handle_id) selection.handle = { id: params.handle_id };
+      if (params.hardware_kit_id) selection.hardware_kit = { id: params.hardware_kit_id };
+      if (params.reversible !== undefined) selection.reversible = params.reversible;
+      if (params.mirror !== undefined && params.mirror !== 'none') selection.mirror = params.mirror;
+      if (params.threshold !== undefined) selection.threshold = params.threshold;
 
       // Расчет цены - публичный endpoint
       const response = await fetch('/api/price/doors', {
@@ -273,7 +450,12 @@ export function usePriceCalculation() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        setPriceData(null);
+        if (process.env.NODE_ENV === 'development') {
+          const errBody = await response.json().catch(() => ({}));
+          console.warn('Расчет цены: товар не найден или ошибка', response.status, errBody);
+        }
+        return;
       }
       const responseData = await response.json();
       const data = parseApiResponse(responseData);
@@ -297,6 +479,10 @@ export function usePriceCalculation() {
     }
   }, []);
 
-  return { calculate, calculating, priceData };
+  const clearPrice = useCallback(() => {
+    setPriceData(null);
+  }, []);
+
+  return { calculate, calculating, priceData, clearPrice };
 }
 

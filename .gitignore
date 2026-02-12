@@ -86,6 +86,8 @@ jspm_packages/
 # IDE
 .vscode/
 .idea/
+.cursor/
+1002/
 *.swp
 *.swo
 
