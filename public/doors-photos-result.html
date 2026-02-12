@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Результат: фото моделей дверей</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.25rem; }
+    .ok { color: #059669; }
+    .stat { margin: 0.5rem 0; }
+    code { background: #f1f5f9; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    a { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <h1>Результат проверки фото моделей</h1>
+  <p>Страница загружает <code>/api/catalog/doors/complete-data</code> и показывает, сколько моделей получили фото.</p>
+  <div id="out">Загрузка…</div>
+  <p style="margin-top: 2rem;"><a href="/doors">Открыть конфигуратор дверей →</a></p>
+  <script>
+    fetch('/api/catalog/doors/complete-data')
+      .then(r => r.json())
+      .then(body => {
+        const d = body.data !== undefined ? body.data : body;
+        const models = Array.isArray(d.models) ? d.models : [];
+        const withPhoto = models.filter(m => m.photo);
+        const withLocal = withPhoto.filter(m => String(m.photo).startsWith('/uploads'));
+        const root = document.getElementById('out');
+        root.innerHTML = [
+          '<p class="stat"><strong>Всего моделей:</strong> ' + models.length + '</p>',
+          '<p class="stat ok"><strong>Моделей с полем photo:</strong> ' + withPhoto.length + '</p>',
+          '<p class="stat">Из них с локальным путём <code>/uploads/...</code>: ' + withLocal.length + ' (будут отображаться на странице /doors)</p>',
+          withPhoto.length > 0 ? '<p>Пример пути: <code>' + String(withPhoto[0].photo).slice(0, 70) + '…</code></p>' : ''
+        ].join('');
+      })
+      .catch(e => {
+        document.getElementById('out').innerHTML = '<p style="color:red">Ошибка: ' + e.message + '</p>';
+      });
+  </script>
+</body>
+</html>
