@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchWithAuth } from '@/lib/utils/fetch-with-auth';
 import { parseApiResponse } from '@/lib/utils/parse-api-response';
 import type { DoorModel, DoorCoating, DoorEdge, DoorOption, DoorHandle, DoorLimiter } from './api';
@@ -64,6 +64,7 @@ export function useConfiguratorData() {
               id: m.modelKey || m.model || String(Math.random()),
               model_name: m.model || '',
               style: m.style || '',
+              suppliers: Array.isArray(m.suppliers) ? m.suppliers : [],
               photo: m.photo || m.photos?.cover || null,
               photos: m.photos || { cover: m.photo, gallery: [] },
               sizes: m.products?.map((p: any) => ({
@@ -71,6 +72,7 @@ export function useConfiguratorData() {
                 height: Number(p.properties?.['Высота/мм']) || 2000,
               })).filter((s: any) => s.width && s.height) || [],
               doorOptions: m.doorOptions,
+              filling_names: m.filling_names ?? (m.doorOptions?.filling_name ? [m.doorOptions.filling_name] : []),
             })));
           }
         } else if (!modelsResponse.ok && !cancelled) {
@@ -80,7 +82,7 @@ export function useConfiguratorData() {
         if (!cancelled && handlesRes.ok) {
           try {
             const handlesData = await handlesRes.json();
-            const grouped = parseApiResponse<Record<string, Array<{ id: string; name: string; group?: string; price?: number; photos?: string[] }>>>(handlesData);
+            const grouped = parseApiResponse<Record<string, Array<{ id: string; name: string; group?: string; price?: number; photos?: string[]; color?: string | null; description?: string | null; backplate_price_rrc?: number }>>>(handlesData);
             if (grouped && typeof grouped === 'object') {
               const flat: DoorHandle[] = [];
               for (const group of Object.values(grouped)) {
@@ -90,9 +92,13 @@ export function useConfiguratorData() {
                       id: h.id || '',
                       name: h.name || '',
                       photo_path: (h.photos && h.photos[0]) ? h.photos[0] : null,
+                      photos: Array.isArray(h.photos) ? h.photos : undefined,
                       price_rrc: Number(h.price) || 0,
                       price_opt: 0,
                       series: h.group,
+                      color: h.color ?? undefined,
+                      description: h.description ?? undefined,
+                      backplate_price_rrc: Number(h.backplate_price_rrc) || 0,
                     });
                   }
                 }
@@ -125,7 +131,7 @@ export function useConfiguratorData() {
         if (!cancelled && architravesRes.ok) {
           try {
             const architravesData = await architravesRes.json();
-            const list = parseApiResponse<Array<{ id: string; option_type?: string; option_name?: string; price_surcharge?: number; photo_path?: string | null }>>(architravesData);
+            const list = parseApiResponse<Array<{ id: string; option_type?: string; option_name?: string; price_surcharge?: number; photo_path?: string | null; supplier?: string }>>(architravesData);
             if (Array.isArray(list)) {
               setArchitraves(list.map((a) => ({
                 id: a.id,
@@ -134,6 +140,7 @@ export function useConfiguratorData() {
                 name: a.option_name || a.name || '',
                 price_surcharge: a.price_surcharge,
                 photo_path: a.photo_path ?? null,
+                supplier: a.supplier ?? undefined,
               })));
             }
           } catch {
@@ -201,6 +208,7 @@ function applyFoundModel(
     id: foundModel.modelKey || foundModel.model || modelId,
     model_name: foundModel.model || '',
     style: foundModel.style || '',
+    suppliers: Array.isArray(foundModel.suppliers) ? foundModel.suppliers : [],
     photo: foundModel.photo || foundModel.photos?.cover || null,
     photos: foundModel.photos || { cover: foundModel.photo, gallery: [] },
     sizes: foundModel.products?.map((p: any) => ({
@@ -391,8 +399,14 @@ export interface PriceCalculationParams {
   mirror?: 'none' | 'one' | 'both' | 'mirror_one' | 'mirror_both';
   /** Порог — опция, не отдельная строка в корзине */
   threshold?: boolean;
+  /** Наполнение (название из каталога: Голд, Сильвер и т.д.) — для подбора товара по цене */
+  filling?: string;
   /** Комплект фурнитуры (отдельный товар в корзине) */
   hardware_kit_id?: string;
+  /** Завертка к ручке — участвует в расчёте цены */
+  backplate?: boolean;
+  /** Поставщик выбранного наличника — фильтрует вариант двери для заказа (модель по коду может быть у нескольких поставщиков) */
+  supplier?: string;
 }
 
 /**
@@ -412,12 +426,16 @@ export interface PriceData {
 export function usePriceCalculation() {
   const [calculating, setCalculating] = useState(false);
   const [priceData, setPriceData] = useState<PriceData | null>(null);
+  const lastRequestIdRef = useRef(0);
 
   const calculate = useCallback(async (params: PriceCalculationParams) => {
     if (!params.door_model_id) {
       setPriceData(null);
       return;
     }
+
+    const requestId = lastRequestIdRef.current + 1;
+    lastRequestIdRef.current = requestId;
 
     try {
       setCalculating(true);
@@ -439,6 +457,9 @@ export function usePriceCalculation() {
       if (params.reversible !== undefined) selection.reversible = params.reversible;
       if (params.mirror !== undefined && params.mirror !== 'none') selection.mirror = params.mirror;
       if (params.threshold !== undefined) selection.threshold = params.threshold;
+      if (params.filling) selection.filling = params.filling;
+      if (params.backplate !== undefined) selection.backplate = params.backplate;
+      if (params.supplier) selection.supplier = params.supplier;
 
       // Расчет цены - публичный endpoint
       const response = await fetch('/api/price/doors', {
@@ -448,6 +469,9 @@ export function usePriceCalculation() {
         },
         body: JSON.stringify({ selection }),
       });
+
+      // Игнорируем ответ, если уже запущен новый расчёт (смена модели и т.д.)
+      if (requestId !== lastRequestIdRef.current) return;
 
       if (!response.ok) {
         setPriceData(null);
@@ -459,6 +483,8 @@ export function usePriceCalculation() {
       }
       const responseData = await response.json();
       const data = parseApiResponse(responseData);
+
+      if (requestId !== lastRequestIdRef.current) return;
 
       if (data && data.total !== undefined) {
         setPriceData({
@@ -472,10 +498,11 @@ export function usePriceCalculation() {
         setPriceData(null);
       }
     } catch (err) {
+      if (requestId !== lastRequestIdRef.current) return;
       console.error('Ошибка расчета цены:', err);
       setPriceData(null);
     } finally {
-      setCalculating(false);
+      if (requestId === lastRequestIdRef.current) setCalculating(false);
     }
   }, []);
 

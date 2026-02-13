@@ -66,14 +66,27 @@ async function getHandler(
       select: {
         id: true,
         name: true,
+        description: true,
         base_price: true,
         properties_data: true,
         images: {
-          select: { url: true },
+          select: { url: true, original_name: true, sort_order: true, is_primary: true },
           orderBy: [{ is_primary: 'desc' }, { sort_order: 'asc' }],
         },
       },
     });
+
+    // По листу «04 Ручки Завертки»: первое фото — ручка (Фото (ссылка)), второе — завертка (Фото завертки (ссылка)).
+    // В БД: handle.jpg / is_primary+sort_order 0 = ручка, zaverтка.jpg / sort_order 1 = завертка.
+    const pickHandleAndBackplateUrls = (images: Array<{ url: string; original_name: string; sort_order: number; is_primary: boolean }>): [string, string | null] => {
+      const withUrl = (images ?? []).filter((i) => i?.url);
+      if (withUrl.length === 0) return ['', null];
+      const backplateImg = withUrl.find((i) => String(i.original_name || '').toLowerCase().includes('zaverтка') || i.sort_order === 1);
+      const handleImg = withUrl.find((i) => i.is_primary || i.sort_order === 0 || !String(i.original_name || '').toLowerCase().includes('zaverтка')) || withUrl[0];
+      const handleUrl = handleImg?.url ?? withUrl[0]?.url ?? '';
+      const backplateUrl = backplateImg?.url && backplateImg.url !== handleUrl ? backplateImg.url : (withUrl.length > 1 && withUrl[1].url !== handleUrl ? withUrl[1].url : null);
+      return [handleUrl, backplateUrl];
+    };
 
     const formattedHandles = handles.map(handle => {
       let props: Record<string, unknown>;
@@ -85,9 +98,12 @@ async function getHandler(
         logger.warn('Ошибка парсинга свойств ручки', 'catalog/hardware/GET', { handleId: handle.id, error: parseError }, loggingContext);
         props = {};
       }
-      
-      let photos: string[] = (handle.images?.map((i) => i.url) ?? []).filter(Boolean);
-      // Фото: сначала из ProductImage, при отсутствии — из properties_data
+
+      const images = handle.images ?? [];
+      const [handleUrl, backplateUrl] = pickHandleAndBackplateUrls(images as Array<{ url: string; original_name: string; sort_order: number; is_primary: boolean }>);
+      let photos: string[] = [handleUrl].filter(Boolean);
+      if (backplateUrl) photos.push(backplateUrl);
+      // Фото: при отсутствии в ProductImage — из properties_data
       if (photos.length === 0 && props.photos) {
         if (typeof props.photos === 'object' && props.photos !== null && 'cover' in props.photos) {
           const photosObj = props.photos as { cover?: string; gallery?: string[] };
@@ -117,7 +133,7 @@ async function getHandler(
           (props['Domeo_наименование ручки_1С'] as string) || 
           handle.name,
         group: (props['Группа'] as string) || 'Без группы',
-        price: parseFloat((props['Domeo_цена группы Web'] as string) || '0') || Number(handle.base_price) || 0,
+        price: parseFloat((props['Domeo_цена группы Web'] as string) || '0') || parseFloat((props['Цена продажи (руб)'] as string) || '0') || Number(handle.base_price) || 0,
         isBasic: (props['Группа'] as string) === 'Базовый',
         showroom: (props['Наличие в шоуруме'] as string) === 'да' || 
           (props['Наличие в шоуруме'] as string) === 'Да',
@@ -125,6 +141,9 @@ async function getHandler(
         article: (props['Фабрика_артикул'] as string) || '',
         factoryName: (props['Фабрика_наименование'] as string) || '',
         photos: photos,
+        color: (props['Цвет'] as string) || undefined,
+        description: handle.description || undefined,
+        backplate_price_rrc: parseFloat(String(props['Завертка, цена РРЦ'] ?? '')) || 0,
       };
     });
 
@@ -220,12 +239,14 @@ async function getHandler(
       const photoFromProps = (props['Наличник: Фото (ссылка)'] ?? props['Фото (ссылка)'] ?? props['Фото'] ?? props['photo']) as string | undefined;
       const photo = photoFromImage ?? (photoFromProps ? normalizePhoto(photoFromProps) : null);
       const price = parseFloat((props['Цена РРЦ'] as string) || '') || Number(p.base_price) || 0;
+      const supplier = String(props['Поставщик'] ?? props['Наличник: Поставщик'] ?? '').trim();
       return {
         id: p.id,
         option_type: 'наличники',
         option_name: (props['Наличник: Название'] as string) || p.name,
         price_surcharge: price,
         photo_path: photo,
+        supplier: supplier || undefined,
       };
     });
     return apiSuccess(formatted);

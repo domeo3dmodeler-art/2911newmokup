@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Info } from 'lucide-react';
 import { Button } from './ui';
+import { parseAndNormalizeColor } from '@/lib/handle-color-normalize';
 
 type Handle = {
   id: string;
@@ -15,6 +16,10 @@ type Handle = {
   article?: string;
   factoryName?: string;
   photos?: string[];
+  /** Цвет для фильтра (из БД) */
+  color?: string | null;
+  /** Описание ручки (из БД) */
+  description?: string | null;
 };
 
 interface HandleSelectionModalProps {
@@ -24,16 +29,87 @@ interface HandleSelectionModalProps {
   onClose: () => void;
 }
 
+/** Эффективный цвет ручки: из БД (handle.color) или из названия. Возвращает { key, label } для фильтра. */
+function getEffectiveColor(handle: Handle): { key: string; label: string } {
+  const fromDb = (handle.color || '').trim();
+  if (fromDb) {
+    const key = fromDb.toLowerCase();
+    return { key, label: fromDb.charAt(0).toUpperCase() + fromDb.slice(1) };
+  }
+  const { key, label } = parseAndNormalizeColor(handle.name);
+  return { key, label };
+}
+
+/** Диапазоны цен для фильтра «По цене» */
+const PRICE_RANGES = [
+  { id: '0-3000', label: 'до 3 000 Р', min: 0, max: 3000 },
+  { id: '3000-5000', label: '3 000 – 5 000 Р', min: 3000, max: 5000 },
+  { id: '5000+', label: 'от 5 000 Р', min: 5000, max: null as number | null },
+];
+
 export default function HandleSelectionModal({
   handles,
   selectedHandleId,
   onSelect,
   onClose
 }: HandleSelectionModalProps) {
-  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [selectedColors, setSelectedColors] = useState<string[]>([]);
+  const [selectedPriceRangeIds, setSelectedPriceRangeIds] = useState<string[]>([]);
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-  
+
+  const allHandlesList = useMemo(() => {
+    const list: Handle[] = [];
+    Object.values(handles).forEach((arr) => list.push(...(arr || [])));
+    return list;
+  }, [handles]);
+
+  const colorOptions = useMemo(() => {
+    const byColor: Record<string, { minPrice: number; label: string }> = {};
+    allHandlesList.forEach((h) => {
+      const { key, label } = getEffectiveColor(h);
+      if (!key) return;
+      if (byColor[key]) {
+        byColor[key].minPrice = Math.min(byColor[key].minPrice, h.price || 0);
+      } else {
+        byColor[key] = { minPrice: h.price || 0, label };
+      }
+    });
+    return Object.entries(byColor)
+      .map(([key, { minPrice, label }]) => ({ key, label, minPrice }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [allHandlesList]);
+
+  const toggleColor = (key: string) => {
+    setSelectedColors((prev) =>
+      prev.includes(key) ? prev.filter((c) => c !== key) : [...prev, key]
+    );
+  };
+
+  const togglePriceRange = (id: string) => {
+    setSelectedPriceRangeIds((prev) =>
+      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]
+    );
+  };
+
+  const filteredHandles = useMemo(() => {
+    let list = allHandlesList;
+    if (selectedColors.length > 0) {
+      const colorSet = new Set(selectedColors);
+      list = list.filter((h) => colorSet.has(getEffectiveColor(h).key));
+    }
+    if (selectedPriceRangeIds.length > 0) {
+      const ranges = PRICE_RANGES.filter((r) => selectedPriceRangeIds.includes(r.id));
+      list = list.filter((h) => {
+        const p = h.price || 0;
+        return ranges.some((r) => r.min <= p && (r.max == null || p <= r.max));
+      });
+    }
+    return list;
+  }, [allHandlesList, selectedColors, selectedPriceRangeIds]);
+
+  const [descriptionForHandleId, setDescriptionForHandleId] = useState<string | null>(null);
+
   // Нормализуем путь к фото (внешние URL оставляем как есть)
   const getNormalizedPhotoUrl = (photoPath: string) => {
     if (!photoPath) return '';
@@ -46,46 +122,17 @@ export default function HandleSelectionModal({
     return `/api/uploads/${photoPath}`;
   };
   
-  // Получаем все доступные группы из handles в нужном порядке
-  const availableGroups = ['Базовый', 'Комфорт', 'Бизнес'].filter(group => 
-    handles[group] && handles[group].length > 0
-  );
-  
-  // Устанавливаем первую группу по умолчанию
-  useEffect(() => {
-    if (availableGroups.length > 0 && !selectedGroup) {
-      setSelectedGroup(availableGroups[0]);
-    }
-  }, [availableGroups, selectedGroup]);
-  
-  const currentGroupHandles = selectedGroup ? handles[selectedGroup] || [] : [];
-  
-  // Получаем стоимость группы
-  const getGroupPrice = (groupName: string) => {
-    const groupHandles = handles[groupName] || [];
-    if (groupHandles.length === 0) return 0;
-    
-    // Берем цену первой ручки в группе как цену группы
-    return groupHandles[0]?.price || 0;
-  };
-  
-  // Получаем все фотографии из текущей группы для галереи
-  const allPhotosInGroup = currentGroupHandles
+  const allPhotosInGroup = filteredHandles
     .flatMap(handle => handle.photos || [])
     .filter(photo => photo);
-  
-  // Получаем название ручки для текущей фотографии
+
   const getCurrentHandleName = () => {
     if (!zoomPhoto || allPhotosInGroup.length === 0) return '';
-    
     const currentPhoto = allPhotosInGroup[currentPhotoIndex];
     if (!currentPhoto) return '';
-    
-    // Находим ручку, которой принадлежит текущая фотография
-    const handle = currentGroupHandles.find(h => 
+    const handle = filteredHandles.find(h =>
       h.photos && h.photos.includes(currentPhoto)
     );
-    
     return handle ? handle.name : '';
   };
   
@@ -138,35 +185,54 @@ export default function HandleSelectionModal({
           
           {/* Content */}
           <div className="p-4 overflow-y-auto flex-1">
-            {/* Выбор группы */}
+            {/* Фильтр по цвету (отдельный; несколько одновременно); "+цена" — мин. цена по цвету */}
             <div className="mb-4">
-              <h3 className="text-lg font-semibold text-black mb-3">
-                Группа ручек
-                {selectedGroup && (
-                  <span className="text-gray-600 font-normal ml-2">
-                    - {getGroupPrice(selectedGroup).toLocaleString('ru-RU')} ₽
-                  </span>
-                )}
-              </h3>
+              <h3 className="text-lg font-semibold text-black mb-3">Цвет</h3>
               <div className="flex gap-2 flex-wrap">
-                {availableGroups.map((group) => (
-                  <Button
-                    key={group}
-                    onClick={() => setSelectedGroup(group)}
-                    variant={selectedGroup === group ? 'default' : 'outline'}
-                    className="px-4 py-2"
-                  >
-                    {group}
-                  </Button>
-                ))}
+                {colorOptions.map((opt) => {
+                  const isSelected = selectedColors.includes(opt.key);
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => toggleColor(opt.key)}
+                      className={`rounded border px-3 py-2 text-sm font-medium transition ${
+                        isSelected ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white hover:border-gray-400'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            
+
+            {/* Фильтр по цене (отдельный; несколько диапазонов одновременно) */}
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-black mb-3">Цена</h3>
+              <div className="flex gap-2 flex-wrap">
+                {PRICE_RANGES.map((range) => {
+                  const isSelected = selectedPriceRangeIds.includes(range.id);
+                  return (
+                    <button
+                      key={range.id}
+                      type="button"
+                      onClick={() => togglePriceRange(range.id)}
+                      className={`rounded border px-3 py-2 text-sm font-medium transition ${
+                        isSelected ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white hover:border-gray-400'
+                      }`}
+                    >
+                      {range.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Сетка ручек */}
-            {selectedGroup && (
-              <div>
-                <div className="grid grid-cols-4 gap-3">
-                  {currentGroupHandles.map((handle) => (
+            <div>
+              <div className="grid grid-cols-4 gap-3">
+                {filteredHandles.map((handle) => (
                     <div
                       key={handle.id}
                       onClick={() => onSelect(handle.id)}
@@ -204,25 +270,47 @@ export default function HandleSelectionModal({
                         </div>
                       </div>
                       
-                      {/* Информация о ручке - без цены */}
-                      <div className="text-center">
-                        <div className="flex items-center justify-center space-x-1 mb-2">
+                      {/* Информация о ручке: название, иконка i (описание) */}
+                      <div className="text-center relative">
+                        <div className="flex items-center justify-center gap-1 mb-2 flex-wrap">
                           <h4 className="font-medium text-black text-sm line-clamp-2">
                             {handle.name}
                           </h4>
-                          <div 
-                            className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                              handle.showroom ? 'bg-green-500' : 'bg-red-500'
-                            }`}
-                            title={handle.showroom ? 'В шоуруме' : 'Нет в шоуруме'}
-                          ></div>
+                          {handle.description && (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="flex-shrink-0 text-gray-500 hover:text-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded p-0.5"
+                              title="Описание"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDescriptionForHandleId((prev) => (prev === handle.id ? null : handle.id));
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDescriptionForHandleId((prev) => (prev === handle.id ? null : handle.id));
+                                }
+                              }}
+                            >
+                              <Info className="w-4 h-4" />
+                            </span>
+                          )}
                         </div>
+                        {descriptionForHandleId === handle.id && handle.description && (
+                          <div
+                            className="absolute left-0 right-0 top-full z-10 mt-1 p-3 bg-white border border-gray-200 rounded-lg shadow-lg text-left text-sm text-gray-700 max-h-32 overflow-y-auto"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {handle.description}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+            </div>
           </div>
           
           {/* Footer */}
