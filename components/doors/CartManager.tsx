@@ -877,7 +877,9 @@ export function CartManager({
                         reversible: item.reversible,
                         mirror: item.mirror,
                         glassColor: item.glassColor,
-                        specRows: item.specRows
+                        specRows: item.specRows,
+                        // Разбивка цены по опциям из конфигуратора — передаём в заказ и далее в экспорт (все колонки Excel)
+                        breakdown: item.breakdown
                       };
                     });
 

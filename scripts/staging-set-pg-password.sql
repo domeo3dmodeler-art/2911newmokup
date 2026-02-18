@@ -1,0 +1,1 @@
+ALTER USER domeo_user WITH PASSWORD 'd0me0Stag1ngPg2025';

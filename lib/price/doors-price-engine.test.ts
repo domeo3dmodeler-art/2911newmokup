@@ -207,7 +207,7 @@ describe('filterProducts', () => {
     ).toHaveLength(0);
   });
 
-  it('10c. при выбранном цвете и allowEmptyColor товары без Цвет/Отделка подходят (fallback после импорта без цвета)', () => {
+  it('10c. цвет не участвует в подборе — товар без Цвет/Отделка подходит при любом выбранном цвете', () => {
     const noColor = doorProduct({
       properties_data: {
         'Код модели Domeo (Web)': 'M1',
@@ -227,7 +227,6 @@ describe('filterProducts', () => {
       width: 800,
       height: 2000
     };
-    expect(filterProducts(list, sel, true, true, false)).toHaveLength(0);
     expect(filterProducts(list, sel, true, true, true)).toHaveLength(1);
   });
 });

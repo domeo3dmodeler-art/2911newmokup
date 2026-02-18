@@ -73,7 +73,63 @@ async function main() {
 
     console.log('✅ Исполнитель создан:', executor.email);
 
-    console.log('🎉 Тестовые пользователи созданы!');
+    // Категория и тестовые товары для каталога дверей (чтобы в приложении что-то отображалось)
+    console.log('📦 Создаем категорию и тестовые товары...');
+    const doorsCategory = await prisma.catalogCategory.upsert({
+      where: { id: 'seed-doors-category-id' },
+      update: { name: 'Межкомнатные двери', path: '/doors', is_active: true },
+      create: {
+        id: 'seed-doors-category-id',
+        name: 'Межкомнатные двери',
+        parent_id: null,
+        level: 0,
+        path: '/doors',
+        sort_order: 0,
+        is_active: true,
+        products_count: 0
+      }
+    });
+
+    const categoryId = doorsCategory.id;
+    const sampleProducts = [
+      { sku: 'TEST-MODEL-01', name: 'Тестовая модель 01', model: 'Модель 01', style: 'Современный' },
+      { sku: 'TEST-MODEL-02', name: 'Тестовая модель 02', model: 'Модель 02', style: 'Классика' },
+      { sku: 'TEST-MODEL-03', name: 'Тестовая модель 03', model: 'Модель 03', style: 'Современный' }
+    ];
+
+    for (const p of sampleProducts) {
+      await prisma.product.upsert({
+        where: { sku: p.sku },
+        update: {
+          name: p.name,
+          properties_data: JSON.stringify({
+            'Название модели': p.model,
+            'Domeo_Стиль Web': p.style
+          })
+        },
+        create: {
+          catalog_category_id: categoryId,
+          sku: p.sku,
+          name: p.name,
+          base_price: 15000,
+          currency: 'RUB',
+          is_active: true,
+          properties_data: JSON.stringify({
+            'Название модели': p.model,
+            'Domeo_Стиль Web': p.style
+          })
+        }
+      });
+    }
+
+    await prisma.catalogCategory.update({
+      where: { id: categoryId },
+      data: { products_count: sampleProducts.length }
+    });
+
+    console.log('✅ Категория "Межкомнатные двери" и', sampleProducts.length, 'тестовых товаров созданы');
+
+    console.log('🎉 Тестовые пользователи и каталог созданы!');
     console.log('');
     console.log('📋 Данные для входа (пароль для всех: ' + TEST_PASSWORD + '):');
     console.log('👑 Администратор: admin@domeo.ru');

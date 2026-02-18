@@ -136,21 +136,21 @@ function normStr(v: unknown): string | null {
 
 /**
  * Подбор товаров дверей по выбору пользователя.
- * Совпадение по: Код модели Domeo (Web), Стиль (Domeo_Стиль Web), Тип покрытия, Цвет/Отделка, размеры, наполнение, поставщик.
- * Название модели в фильтр не входит (оно привязано к коду и стилю в БД; цвета в каталоге привязаны к Название модели через PropertyPhoto).
- * @param allowEmptyColor — если true, при выбранном цвете подходят и товары без Цвет/Отделка (импорт из «Цены базовые» не заполняет цвет; одна цена на покрытие).
+ * Совпадение по: Код модели Domeo (Web), Стиль, Тип покрытия, размеры, наполнение, поставщик.
+ * Цвет в подборе товара для цены не используется: цена одна на покрытие. При этом цвет в конфигураторе
+ * и каталоге по-прежнему участвует (привязка к Названию модели, список цветов по покрытию, фото).
+ * @param _allowEmptyColor — не используется; оставлен для совместимости.
  */
 export function filterProducts(
   products: ProductWithProps[],
   selection: PriceSelection,
   requireStyle: boolean,
   requireFinish: boolean,
-  allowEmptyColor: boolean = false
+  _allowEmptyColor: boolean = false
 ): ProductWithProps[] {
   const selStyle = normStr(selection.style);
   const selModel = normStr(selection.model);
   const selFinish = normStr(selection.finish);
-  const selColor = normStr(selection.color);
   const selFilling = normStr(selection.filling);
   const selSupplier = normStr(selection.supplier);
 
@@ -159,7 +159,6 @@ export function filterProducts(
     const dbStyle = normStr(properties['Domeo_Стиль Web']);
     const modelCode = normStr(properties['Код модели Domeo (Web)']);
     const dbFinish = normStr(properties['Тип покрытия']);
-    const dbColor = normStr(properties['Цвет/Отделка']);
 
     const styleMatch =
       !requireStyle ||
@@ -179,10 +178,6 @@ export function filterProducts(
       !selFinish ||
       dbFinish === selFinish ||
       (dbFinish != null && selFinish != null && dbFinish.trim().toLowerCase() === selFinish.trim().toLowerCase());
-    const colorMatch =
-      !selColor ||
-      (dbColor != null && dbColor !== '' && dbColor === selColor) ||
-      (allowEmptyColor && selColor != null && (dbColor == null || dbColor === ''));
     const widthMatch = !selection.width || properties['Ширина/мм'] == selection.width;
     const heightToMatch = heightForMatching(selection.height ?? undefined);
     const heightMatch = !heightToMatch || properties['Высота/мм'] == heightToMatch;
@@ -192,8 +187,25 @@ export function filterProducts(
     const supplierMatch =
       !selSupplier || (normStr(properties['Поставщик']) ?? '') === selSupplier;
 
-    return finishMatch && colorMatch && widthMatch && heightMatch && fillingMatch && supplierMatch;
+    return finishMatch && widthMatch && heightMatch && fillingMatch && supplierMatch;
   });
+}
+
+/**
+ * Диагностика: по каким шагам фильтра отсеиваются товары (для отладки «цена не считается»).
+ */
+export function diagnoseFilterSteps(
+  products: ProductWithProps[],
+  selection: PriceSelection
+): { step: string; count: number }[] {
+  const steps: { step: string; count: number }[] = [];
+  const m1 = filterProducts(products, selection, true, true, true);
+  steps.push({ step: 'model+style+finish+size+filling (color ignored)', count: m1.length });
+  const m2 = filterProducts(products, selection, true, false, true);
+  steps.push({ step: '+ finish optional', count: m2.length });
+  const m3 = filterProducts(products, selection, false, false, true);
+  steps.push({ step: '+ style optional', count: m3.length });
+  return steps;
 }
 
 export interface EngineInput {
@@ -212,11 +224,9 @@ export interface EngineInput {
 export function calculateDoorPrice(input: EngineInput): PriceResult {
   const { products, selection, hardwareKits, handles, getLimiter, getOptionProducts } = input;
 
-  let matching = filterProducts(products, selection, true, true, false);
-  if (matching.length === 0) matching = filterProducts(products, selection, true, true, true);
+  let matching = filterProducts(products, selection, true, true, true);
   if (matching.length === 0) matching = filterProducts(products, selection, true, false, true);
   if (matching.length === 0) matching = filterProducts(products, selection, false, false, true);
-
   if (matching.length === 0) {
     throw new Error(`Товар с указанными параметрами не найден: ${JSON.stringify(selection)}`);
   }

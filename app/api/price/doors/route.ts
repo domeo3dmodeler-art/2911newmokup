@@ -5,7 +5,7 @@ import { getLoggingContextFromRequest } from '@/lib/auth/logging-context';
 import { apiSuccess, apiError, ApiErrorCode, withErrorHandling } from '@/lib/api/response';
 import { ApiException, NotFoundError } from '@/lib/api/errors';
 import { getDoorsCategoryId } from '@/lib/catalog-categories';
-import { pickMaxPriceProduct, calculateDoorPrice, type ProductWithProps } from '@/lib/price/doors-price-engine';
+import { pickMaxPriceProduct, calculateDoorPrice, diagnoseFilterSteps, type ProductWithProps } from '@/lib/price/doors-price-engine';
 import type { DoorVariant } from '@/components/doors/types';
 
 function parseProps(value: unknown): Record<string, unknown> {
@@ -301,9 +301,13 @@ async function postHandler(
       return apiError(error.code, error.message, error.statusCode, error.details);
     }
     if (error instanceof Error && error.message.includes('Товар с указанными параметрами не найден')) {
-      logger.warn('Товар не найден для параметров', 'price/doors', { selection }, loggingContext);
-      // Возвращаем 200 с пустой ценой, чтобы не было "Failed to load resource 404" в консоли; клиент отобразит подсказку.
-      return apiSuccess({
+      const diag = diagnoseFilterSteps(products, selection);
+      logger.warn('Товар не найден для параметров', 'price/doors', {
+        selection: { style: selection?.style, model: selection?.model, finish: selection?.finish, color: selection?.color, width: selection?.width, height: selection?.height, filling: selection?.filling },
+        productsCount: products.length,
+        filterSteps: diag,
+      }, loggingContext);
+      const body: Record<string, unknown> = {
         currency: 'RUB',
         base: 0,
         breakdown: [],
@@ -311,7 +315,11 @@ async function postHandler(
         sku: null,
         notFound: true,
         selection_policy: 'max_price',
-      });
+      };
+      if (process.env.NODE_ENV === 'development') {
+        body.debug = { selection: { style: selection?.style, model: selection?.model, finish: selection?.finish, color: selection?.color, width: selection?.width, height: selection?.height, filling: selection?.filling }, productsCount: products.length, filterSteps: diag };
+      }
+      return apiSuccess(body);
     }
 
     logger.error('Error calculating price', 'price/doors/POST', {

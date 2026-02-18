@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Info } from 'lucide-react';
 import { Button } from './ui';
 import { parseAndNormalizeColor } from '@/lib/handle-color-normalize';
-import { getImageSrc } from '@/lib/configurator/image-src';
+import { getImageSrc, getHandleImageSrc } from '@/lib/configurator/image-src';
 
 type Handle = {
   id: string;
@@ -111,8 +111,9 @@ export default function HandleSelectionModal({
 
   const [descriptionForHandleId, setDescriptionForHandleId] = useState<string | null>(null);
 
-  // Единый слой путей фото
-  const getNormalizedPhotoUrl = (photoPath: string) => getImageSrc(photoPath);
+  // Единый слой путей фото: для ручек — с fallback по имени на mockup
+  const getNormalizedPhotoUrl = (photoPath: string, handleName?: string) =>
+    handleName ? getHandleImageSrc(photoPath, handleName) : getImageSrc(photoPath);
   
   const allPhotosInGroup = filteredHandles
     .flatMap(handle => handle.photos || [])
@@ -238,7 +239,7 @@ export default function HandleSelectionModal({
                       <div className="aspect-[4/2.8] mb-3 bg-gray-100 overflow-hidden px-2 py-1">
                         {handle.photos && handle.photos.length > 0 ? (
                           <img
-                            src={getNormalizedPhotoUrl(handle.photos[0])}
+                            src={getNormalizedPhotoUrl(handle.photos[0], handle.name)}
                             alt={handle.name}
                             className="w-full h-full object-contain cursor-pointer hover:scale-105 transition-transform duration-200"
                             onClick={(e) => {
@@ -247,6 +248,15 @@ export default function HandleSelectionModal({
                             }}
                             onError={(e) => {
                               const target = e.target as HTMLImageElement;
+                              // Сначала пробуем mockup по имени ручки
+                              if (!target.dataset.fallbackUsed) {
+                                target.dataset.fallbackUsed = '1';
+                                const mockupSrc = getHandleImageSrc(undefined, handle.name);
+                                if (mockupSrc && mockupSrc !== target.src) {
+                                  target.src = mockupSrc;
+                                  return;
+                                }
+                              }
                               target.style.display = 'none';
                               const placeholder = target.nextElementSibling as HTMLElement;
                               if (placeholder) {

@@ -1221,11 +1221,11 @@ export function OrderDetailsModal({ isOpen, onClose, orderId, userRole, onOrderU
               )}
             </div>
 
-            {/* Проект/планировка для Комплектатора */}
+            {/* План открывания и закрывания дверей для Комплектатора */}
             {isComplectator && (
               <div className="mb-4 pb-4 border-b border-gray-200">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-gray-900">Проект/планировка</h3>
+                  <h3 className="text-sm font-medium text-gray-900">План открывания и закрывания дверей</h3>
                   <div className="flex items-center space-x-2">
                     {order.project_file_url && (
                       <button
@@ -1275,11 +1275,11 @@ export function OrderDetailsModal({ isOpen, onClose, orderId, userRole, onOrderU
               </div>
             )}
 
-            {/* Проект/планировка для Исполнителя (только просмотр, без загрузки) */}
+            {/* План открывания и закрывания дверей для Исполнителя (только просмотр, без загрузки) */}
             {isExecutor && (
               <div className="mb-4 pb-4 border-b border-gray-200">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-gray-900">Проект/планировка</h3>
+                  <h3 className="text-sm font-medium text-gray-900">План открывания и закрывания дверей</h3>
                 </div>
                 {order.project_file_url ? (
                   <div className="flex items-center space-x-2">
@@ -1421,11 +1421,11 @@ export function OrderDetailsModal({ isOpen, onClose, orderId, userRole, onOrderU
             {/* Дополнительная информация для Руководителя (файлы, тех. задания и т.д.) */}
             {userRole === 'manager' && (
               <div className="mb-4 pb-4 border-b border-gray-200 space-y-3">
-                {/* Проект/планировка */}
+                {/* План открывания и закрывания дверей */}
                 {order.project_file_url && (
                   <div className="flex items-center space-x-2">
                     <FileText className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">Проект/планировка:</span>
+                    <span className="text-sm text-gray-600">План открывания и закрывания дверей:</span>
                     <a
                       href={order.project_file_url}
                       target="_blank"

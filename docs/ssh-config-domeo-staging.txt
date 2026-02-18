@@ -1,0 +1,11 @@
+# Скопируйте эти строки в файл C:\Users\<ваш_логин>\.ssh\config
+# (создайте папку .ssh и файл config, если их нет)
+# Тогда подключение: ssh domeo-staging
+
+Host domeo-staging
+    HostName 158.160.72.3
+    User petr
+    IdentityFile C:\02_conf\ssh1702\ssh-key-1771306236042\ssh-key-1771306236042
+
+# Если SSH пишет "WARNING: UNPROTECTED PRIVATE KEY FILE", выполните один раз в PowerShell:
+#   icacls "C:\02_conf\ssh1702\ssh-key-1771306236042\ssh-key-1771306236042" /inheritance:r /grant:r "%USERNAME%:R"

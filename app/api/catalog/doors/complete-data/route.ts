@@ -8,6 +8,9 @@ import { apiSuccess, apiError, ApiErrorCode, withErrorHandling } from '@/lib/api
 import { requireAuth } from '@/lib/auth/middleware';
 import { getAuthenticatedUser, type AuthenticatedUser } from '@/lib/auth/request-helpers';
 import { getCompleteDataCache, clearCompleteDataCache } from '../../../../../lib/catalog/complete-data-cache';
+import { join, basename } from 'path';
+import { existsSync } from 'fs';
+import { findDoorPhotoFile } from '../../../../../lib/configurator/door-photo-fallback';
 
 const CACHE_TTL = 30 * 60 * 1000;
 
@@ -172,6 +175,20 @@ async function getHandler(
     return IMAGE_EXT.test(normalized) ? normalized : null;
   };
 
+  // Подстановка реального имени файла, если в БД короткое (Дверь_Molis_1_Белый_...), а на диске длинное (Дверь_Molis_1_эмаль_ДГ_Исполнение_Эмаль_Белый_...)
+  const resolveDoorPhotoToExistingFile = (normalizedPath: string | null): string | null => {
+    if (!normalizedPath || !normalizedPath.includes('/final-filled/doors/')) return normalizedPath;
+    const prefix = '/uploads/final-filled/doors/';
+    if (!normalizedPath.startsWith(prefix)) return normalizedPath;
+    const fileName = normalizedPath.slice(prefix.length);
+    const doorsDir = join(process.cwd(), 'public', 'uploads', 'final-filled', 'doors');
+    const fullPath = join(doorsDir, fileName);
+    if (existsSync(fullPath)) return normalizedPath;
+    const found = findDoorPhotoFile(doorsDir, fileName);
+    if (!found) return normalizedPath;
+    return `${prefix}${basename(found)}`;
+  };
+
   // Одна запись на (modelKey, style) только если есть хотя бы один товар. Правила: docs/DOOR_CONFIGURATOR_DATA_RULES.md
   type ModelEntry = [string, { model: string; modelKey: string; style: string; products: any[]; factoryModelNames: Set<string>; suppliers: Set<string> }];
   const modelEntries: ModelEntry[] = [];
@@ -219,8 +236,24 @@ async function getHandler(
 
     const normalizedCode = modelKey && typeof modelKey === 'string' ? modelKey.trim().toLowerCase() : '';
 
-    // Покрытия только из товаров этой пары (modelKey, style). Правила: docs/DOOR_CONFIGURATOR_DATA_RULES.md
+    // Список покрытий и цветов: сначала из PropertyPhoto (полный каталог по модели), затем дополняем из товаров — после отката в товарах по одному цвету на покрытие, в PropertyPhoto все цвета.
     const coatingsMap = new Map<string, { id: string; coating_type: string; color_name: string; photo_path: string | null }>();
+    const prefixModel = `${modelKey}|`;
+    const colorPhotosForModel = await getPropertyPhotosByValuePrefix(DOORS_CATEGORY_ID, DOOR_COLOR_PROPERTY, prefixModel);
+    for (const ph of colorPhotosForModel) {
+      const parts = String(ph.propertyValue ?? '').split('|');
+      const finish = parts.length >= 3 ? parts[1].trim() : '';
+      const colorName = parts.length >= 3 ? parts[2].trim() : parts.length === 2 ? parts[1].trim() : '';
+      if (!colorName) continue;
+      const key = `${finish}_${colorName}`;
+      if (coatingsMap.has(key)) continue;
+      coatingsMap.set(key, {
+        id: key,
+        coating_type: finish || '—',
+        color_name: colorName,
+        photo_path: null
+      });
+    }
     for (const p of modelData.products ?? []) {
       const props = p.properties || {};
       const coatingType = String(props['Тип покрытия'] ?? '').trim();
@@ -242,7 +275,8 @@ async function getHandler(
       const colorPhotos = await getPropertyPhotos(DOORS_CATEGORY_ID, DOOR_COLOR_PROPERTY, propertyValue);
       const coverPhoto = colorPhotos.find((ph: { photoType: string }) => ph.photoType === 'cover');
       const rawPath = coverPhoto?.photoPath;
-      const photo_path = rawPath ? normalizePhotoPath(rawPath) : null;
+      let photo_path = rawPath ? normalizePhotoPath(rawPath) : null;
+      if (photo_path) photo_path = resolveDoorPhotoToExistingFile(photo_path);
       if (photo_path) {
         entry.photo_path = photo_path;
         firstColorCover = firstColorCover || photo_path;
@@ -263,19 +297,19 @@ async function getHandler(
     if (normalizedCode) {
       const byCode = await getPropertyPhotos(DOORS_CATEGORY_ID, DOOR_MODEL_CODE_PROPERTY, normalizedCode);
       const structuredByCode = structurePropertyPhotos(byCode);
-      modelCover = normalizePhotoPath(structuredByCode.cover);
+      modelCover = resolveDoorPhotoToExistingFile(normalizePhotoPath(structuredByCode.cover));
     }
     if (!modelCover && normalizedCode) {
       const byPrefix = await getPropertyPhotosByValuePrefix(DOORS_CATEGORY_ID, DOOR_COLOR_PROPERTY, normalizedCode + '|');
       const structuredByPrefix = structurePropertyPhotos(byPrefix);
-      modelCover = normalizePhotoPath(structuredByPrefix.cover);
+      modelCover = resolveDoorPhotoToExistingFile(normalizePhotoPath(structuredByPrefix.cover));
     }
     if (!modelCover && modelKey.trim() !== normalizedCode) {
       const byKeyPrefix = await getPropertyPhotosByValuePrefix(DOORS_CATEGORY_ID, DOOR_COLOR_PROPERTY, modelKey.trim() + '|');
       const structuredByKey = structurePropertyPhotos(byKeyPrefix);
-      modelCover = normalizePhotoPath(structuredByKey.cover);
+      modelCover = resolveDoorPhotoToExistingFile(normalizePhotoPath(structuredByKey.cover));
     }
-    if (!modelCover && firstColorCover) modelCover = normalizePhotoPath(firstColorCover);
+    if (!modelCover && firstColorCover) modelCover = resolveDoorPhotoToExistingFile(firstColorCover);
     const photoStructure = { cover: modelCover, gallery: [] as string[] };
     // Типы покрытия и цвета по типам
     const finishes = [...new Set(coatings.map((c) => c.coating_type))].filter(Boolean).sort();
@@ -360,6 +394,14 @@ async function getHandler(
     const glassColors = Array.from(glassColorsSet);
     const fillingName = fillingNames.size > 0 ? Array.from(fillingNames)[0] : '';
 
+    // Размеры (ширина × высота) без передачи полного массива products — уменьшает ответ и устраняет ERR_INCOMPLETE_CHUNKED_ENCODING на слабых ВМ
+    const sizes = (modelData.products ?? [])
+      .map((p: { properties?: Record<string, unknown> }) => ({
+        width: Number(p.properties?.['Ширина/мм']) || 800,
+        height: Number(p.properties?.['Высота/мм']) || 2000,
+      }))
+      .filter((s: { width: number; height: number }) => s.width && s.height);
+
     const result = {
       model: modelData.model,
       modelKey: modelData.modelKey,
@@ -371,9 +413,10 @@ async function getHandler(
         gallery: normalizedGallery
       },
       hasGallery: hasGallery,
-      products: modelData.products,
+      sizes: sizes.length > 0 ? sizes : undefined,
       coatings,
       colorsByFinish,
+      // products не отдаём — объём слишком большой, приводит к ERR_INCOMPLETE_CHUNKED_ENCODING; клиент использует sizes, coatings, edge_options
       glassColors, // варианты цвета стекла (на цену не влияет; для спецификации)
       edge_in_base: edgeInBase,
       edge_options: edgeOptionsList,

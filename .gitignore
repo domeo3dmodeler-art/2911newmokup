@@ -9,6 +9,9 @@ yarn-error.log*
 out/
 build/
 
+# SSH keys (local, do not commit)
+.ssh/
+
 # Environment variables
 .env.local
 .env.development.local

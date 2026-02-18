@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useCart } from '../../../hooks/useCart';
 import { priceService, PriceCalculationRequest } from '../../../lib/price/price-service';
 import { clientLogger } from '@/lib/logging/client-logger';
+import { getImageSrc } from '@/lib/configurator/image-src';
 
 interface DoorCalculatorProps {
   title?: string;
@@ -183,7 +184,7 @@ export function DoorCalculator({
         const data = await response.json();
         if (data.photos && data.photos.length > 0) {
           const photoPath = data.photos[0];
-          const imageUrl = photoPath.startsWith('/uploads') ? photoPath : `/uploads${photoPath}`;
+          const imageUrl = getImageSrc(photoPath) || '';
           setCurrentPhoto(imageUrl);
           clientLogger.debug('✅ Фото загружено:', imageUrl);
         } else {

@@ -46,8 +46,9 @@ export function useConfiguratorData() {
         setLoading(true);
         setError(null);
 
-        // При ?refresh=1 в URL запрашиваем данные без кэша (после правок в БД)
-        const refreshQ = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('refresh') === '1' ? '?refresh=1' : '';
+        // Всегда запрашиваем с ?refresh=1 на странице дверей, чтобы получать актуальный список цветов из PropertyPhoto
+        const isDoorsPage = typeof window !== 'undefined' && window.location.pathname === '/doors';
+        const refreshQ = (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('refresh') === '1') || isDoorsPage ? '?refresh=1' : '';
         const [modelsResponse, handlesRes, limitersRes, architravesRes, kitsRes] = await Promise.all([
           fetch('/api/catalog/doors/complete-data' + refreshQ, { cache: 'no-store' }),
           fetch('/api/catalog/hardware?type=handles'),
@@ -69,10 +70,12 @@ export function useConfiguratorData() {
               suppliers: Array.isArray(m.suppliers) ? m.suppliers : [],
               photo: m.photo ?? m.photos?.cover ?? null,
               photos: m.photos ?? { cover: m.photo, gallery: [] },
-              sizes: m.products?.map((p: any) => ({
-                width: Number(p.properties?.['Ширина/мм']) || 800,
-                height: Number(p.properties?.['Высота/мм']) || 2000,
-              })).filter((s: any) => s.width && s.height) || [],
+              sizes: Array.isArray(m.sizes) && m.sizes.length > 0
+                ? m.sizes
+                : (m.products?.map((p: any) => ({
+                    width: Number(p.properties?.['Ширина/мм']) || 800,
+                    height: Number(p.properties?.['Высота/мм']) || 2000,
+                  })).filter((s: any) => s.width && s.height) || []),
               doorOptions: m.doorOptions,
               filling_names: m.filling_names ?? (m.doorOptions?.filling_name ? [m.doorOptions.filling_name] : []),
             })));
@@ -213,10 +216,12 @@ function applyFoundModel(
     suppliers: Array.isArray(foundModel.suppliers) ? foundModel.suppliers : [],
     photo: foundModel.photo ?? foundModel.photos?.cover ?? null,
     photos: foundModel.photos ?? { cover: foundModel.photo ?? null, gallery: [] },
-    sizes: foundModel.products?.map((p: any) => ({
-      width: Number(p.properties?.['Ширина/мм']) || 800,
-      height: Number(p.properties?.['Высота/мм']) || 2000,
-    })).filter((s: any) => s.width && s.height) || [],
+    sizes: Array.isArray(foundModel.sizes) && foundModel.sizes.length > 0
+      ? foundModel.sizes
+      : (foundModel.products?.map((p: any) => ({
+          width: Number(p.properties?.['Ширина/мм']) || 800,
+          height: Number(p.properties?.['Высота/мм']) || 2000,
+        })).filter((s: any) => s.width && s.height) || []),
     glassColors: Array.isArray(foundModel.glassColors) ? foundModel.glassColors : [],
     revers_available: foundModel.doorOptions?.revers_available ?? false,
     edge_in_base: foundModel.edge_in_base === true,
@@ -512,6 +517,12 @@ export function usePriceCalculation() {
 
       if (data && data.notFound) {
         setPriceData(null);
+        if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+          console.warn('[Цена не найдена] Параметры запроса:', { model: params.door_model_id, style: params.style, finish: params.finish, color: params.color, width: params.width, height: params.height, filling: params.filling });
+          if ((data as { debug?: unknown }).debug) {
+            console.warn('[Цена не найдена] Диагностика API:', (data as { debug: unknown }).debug);
+          }
+        }
       } else if (data && data.total !== undefined) {
         setPriceData({
           currency: data.currency || 'RUB',

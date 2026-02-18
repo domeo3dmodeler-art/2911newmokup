@@ -78,13 +78,19 @@ async function getHandler(
 
     // По листу «04 Ручки Завертки»: первое фото — ручка (Фото (ссылка)), второе — завертка (Фото завертки (ссылка)).
     // В БД: handle.jpg / is_primary+sort_order 0 = ручка, zaverтка.jpg / sort_order 1 = завертка.
+    // Приоритет локальных путей /uploads/: на фронте внешние ссылки (360.yandex и т.п.) отбрасываются — иначе плейсхолдер.
+    const isLocalUrl = (url: string) => typeof url === 'string' && url.trim().startsWith('/uploads/');
     const pickHandleAndBackplateUrls = (images: Array<{ url: string; original_name: string; sort_order: number; is_primary: boolean }>): [string, string | null] => {
       const withUrl = (images ?? []).filter((i) => i?.url);
       if (withUrl.length === 0) return ['', null];
       const backplateImg = withUrl.find((i) => String(i.original_name || '').toLowerCase().includes('zaverтка') || i.sort_order === 1);
-      const handleImg = withUrl.find((i) => i.is_primary || i.sort_order === 0 || !String(i.original_name || '').toLowerCase().includes('zaverтка')) || withUrl[0];
+      const handleCandidates = withUrl.filter((i) => i.is_primary || i.sort_order === 0 || !String(i.original_name || '').toLowerCase().includes('zaverтка'));
+      const handleImg = handleCandidates.find((i) => isLocalUrl(i.url)) ?? handleCandidates[0] ?? withUrl[0];
       const handleUrl = handleImg?.url ?? withUrl[0]?.url ?? '';
-      const backplateUrl = backplateImg?.url && backplateImg.url !== handleUrl ? backplateImg.url : (withUrl.length > 1 && withUrl[1].url !== handleUrl ? withUrl[1].url : null);
+      const backplateCandidates = withUrl.filter((i) => String(i.original_name || '').toLowerCase().includes('zaverтка') || i.sort_order === 1);
+      const backplateLocal = backplateCandidates.find((i) => isLocalUrl(i.url));
+      const backplateUrlRaw = backplateLocal?.url ?? backplateImg?.url ?? (withUrl.length > 1 && withUrl[1].url !== handleUrl ? withUrl[1].url : null);
+      const backplateUrl = backplateUrlRaw && backplateUrlRaw !== handleUrl ? backplateUrlRaw : null;
       return [handleUrl, backplateUrl];
     };
 

@@ -47,7 +47,9 @@ export function resolveImagePath(path: string | null | undefined): string {
  */
 export function toDisplayUrl(resolvedPath: string): string {
   if (!resolvedPath) return '';
-  if (resolvedPath.startsWith('/uploads/')) return resolvedPath;
+  // Всегда отдаём абсолютный путь для локальных URL (избегаем 404 при относительном uploads/...)
+  if (resolvedPath.startsWith('http://') || resolvedPath.startsWith('https://')) return resolvedPath;
+  if (!resolvedPath.startsWith('/')) return '/' + resolvedPath;
   return resolvedPath;
 }
 

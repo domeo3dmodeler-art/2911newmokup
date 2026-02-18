@@ -303,6 +303,12 @@ async function generateExcel(data: any): Promise<Buffer> {
       const item = data.items[i];
       logger.debug('Обрабатываем товар из корзины', 'supplier-orders/excel', { itemIndex: i + 1, itemName: item.name, itemType: item.type });
 
+      // Единые fallback'и для колонок Наименование, Количество, Цена, Сумма
+      const displayName = getDisplayNameForExport(item) || (item.name && String(item.name).trim()) || '';
+      const qty = item.quantity ?? item.qty ?? 1;
+      const unitPrice = item.unitPrice ?? item.price ?? 0;
+      const rowTotal = qty * unitPrice;
+
       // Ищем подходящие товары в БД (строгое совпадение: данные корзины = из БД)
       const matchingProducts = await getMatchingProducts(item);
       logger.debug('Найдено подходящих товаров в БД', 'supplier-orders/excel', { itemName: item.name, matchingProductsCount: matchingProducts.length });
@@ -315,10 +321,10 @@ async function generateExcel(data: any): Promise<Buffer> {
         
         // Базовые поля: полный набор опций двери / ручки / ограничителя
         row.getCell(1).value = globalRowNumber++; // №
-        row.getCell(2).value = getDisplayNameForExport(item); // Наименование
-        row.getCell(3).value = item.quantity || item.qty || 1; // Количество
-        row.getCell(4).value = item.unitPrice || 0; // Цена
-        row.getCell(5).value = (item.quantity || item.qty || 1) * (item.unitPrice || 0); // Сумма
+        row.getCell(2).value = displayName; // Наименование
+        row.getCell(3).value = qty; // Количество
+        row.getCell(4).value = unitPrice; // Цена
+        row.getCell(5).value = rowTotal; // Сумма
         
         // Форматирование чисел (без .00 и с разделителями групп разрядов)
         row.getCell(4).numFmt = '#,##0';
@@ -382,10 +388,10 @@ async function generateExcel(data: any): Promise<Buffer> {
         
         // Базовые поля (заполняем только один раз): полный набор опций двери / ручки / ограничителя
         row.getCell(1).value = globalRowNumber++; // №
-        row.getCell(2).value = getDisplayNameForExport(item); // Наименование из корзины
-        row.getCell(3).value = item.quantity || item.qty || 1; // Количество из корзины
-        row.getCell(4).value = item.unitPrice || 0; // Цена из корзины
-        row.getCell(5).value = (item.quantity || item.qty || 1) * (item.unitPrice || 0); // Сумма
+        row.getCell(2).value = displayName; // Наименование
+        row.getCell(3).value = qty; // Количество
+        row.getCell(4).value = unitPrice; // Цена
+        row.getCell(5).value = rowTotal; // Сумма
         
         // Форматирование чисел (без .00 и с разделителями групп разрядов)
         row.getCell(4).numFmt = '#,##0';

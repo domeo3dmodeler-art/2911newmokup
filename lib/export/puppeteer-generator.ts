@@ -466,10 +466,6 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
   logger.info('Начинаем генерацию Excel заказа с полными свойствами', 'puppeteer-generator', { itemsCount: data.items?.length });
 
   try {
-    // Получаем шаблон для дверей (пока не используется)
-    // const template = await getDoorTemplate();
-    // console.log('📋 Поля шаблона:', template.exportFields.length);
-
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Заказ');
     
@@ -493,45 +489,25 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
     worksheet.getCell('A8').value = 'Дата:';
     worksheet.getCell('B8').value = new Date().toLocaleDateString('ru-RU');
 
-    // Базовые заголовки + поля из БД в нужном порядке
+    // Базовые заголовки + поля из БД (опции двери и колонки «X, цена» из breakdown)
     const baseHeaders = ['№', 'Наименование', 'Количество', 'Цена', 'Сумма'];
-    
     const dbFields = [...EXCEL_DOOR_FIELDS];
     const allHeaders = [...baseHeaders, ...dbFields];
-    
-    // Устанавливаем заголовки
-    worksheet.getRow(10).values = allHeaders;
+    worksheet.getRow(10).values = allHeaders as unknown as (string | number | null)[];
     worksheet.getRow(10).font = { bold: true };
-    
-    // Цветовая схема: данные из корзины - голубой, данные из БД - бежевый
     const cartHeadersCount = baseHeaders.length;
     const dbHeadersCount = dbFields.length;
-    
-    // Заголовки из корзины (голубой фон)
     for (let i = 1; i <= cartHeadersCount; i++) {
       const cell = worksheet.getCell(10, i);
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE6F3FF' } // Светло-голубой
-      };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F3FF' } };
+      if (!cell.border) cell.border = {};
+      cell.border.bottom = { style: 'thin', color: { argb: 'FF000000' } };
     }
-    
-    // Заголовки из БД (бежевый фон)
     for (let i = cartHeadersCount + 1; i <= cartHeadersCount + dbHeadersCount; i++) {
       const cell = worksheet.getCell(10, i);
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF5F5DC' } // Бежевый
-      };
-    }
-
-    // Добавляем границу после заголовков
-    for (let col = 1; col <= allHeaders.length; col++) {
-      const headerCell = worksheet.getCell(10, col);
-      if (!headerCell.border) headerCell.border = {};
-      headerCell.border.bottom = { style: 'thin', color: { argb: 'FF000000' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5DC' } };
+      if (!cell.border) cell.border = {};
+      cell.border.bottom = { style: 'thin', color: { argb: 'FF000000' } };
     }
 
     // Обрабатываем каждый товар из корзины
@@ -541,6 +517,12 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
     for (let i = 0; i < data.items.length; i++) {
       const item = data.items[i];
       logger.debug('Обрабатываем товар из корзины', 'puppeteer-generator', { itemIndex: i + 1, itemModel: item.model, itemName: item.name });
+
+      // Единые fallback'и для колонок Наименование, Количество, Цена, Сумма (чтобы в экспорте не было пустых ячеек)
+      const displayName = getDisplayNameForExport(item) || (item.name && String(item.name).trim()) || '';
+      const qty = item.qty ?? item.quantity ?? 1;
+      const unitPrice = item.unitPrice ?? item.price ?? 0;
+      const rowTotal = qty * unitPrice;
 
       const isDoor = getItemType(item as any) === 'door';
       const savedVariants = (item as any).matchingVariants as Array<{ modelName: string; supplier: string; priceOpt: string | number; priceRrc: string | number; material: string; width: number | string; height: number | string; color: string; skuInternal: string }> | undefined;
@@ -568,7 +550,7 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
       logger.debug('Найдено подходящих товаров в БД / сохранённых вариантов', 'puppeteer-generator', { itemName: item.name, matchingCount: matchingProducts.length, useSavedVariants, savedVariantsCount: savedVariants?.length ?? 0 });
 
       if (useSavedVariants && savedVariants!.length > 0) {
-        // Одна позиция корзины (код) → несколько строк по сохранённому списку вариантов; полные поля из БД (Толщина, Стекло, Кромка в базе, Наполнение, Стиль) подмешиваем из первого совпадения в БД
+        // Одна позиция корзины (код) → несколько строк по сохранённому списку вариантов; полные поля из БД подмешиваем из первого совпадения в БД
         const variants = [...savedVariants!].sort((a, b) => {
           if (!itemModelName) return 0;
           const aMatch = (a.modelName || '').trim() === itemModelName;
@@ -579,10 +561,10 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
         });
         const row = worksheet.getRow(rowIndex);
         row.getCell(1).value = globalRowNumber++;
-        row.getCell(2).value = getDisplayNameForExport(item);
-        row.getCell(3).value = item.qty || item.quantity || 1;
-        row.getCell(4).value = item.unitPrice || 0;
-        row.getCell(5).value = (item.qty || item.quantity || 1) * (item.unitPrice || 0);
+        row.getCell(2).value = displayName;
+        row.getCell(3).value = qty;
+        row.getCell(4).value = unitPrice;
+        row.getCell(5).value = rowTotal;
         row.getCell(4).numFmt = '#,##0';
         row.getCell(5).numFmt = '#,##0';
         if (variants.length > 1) {
@@ -632,20 +614,18 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
           }
         }
       } else if (matchingProducts.length === 0) {
-        logger.warn('Экспорт: нет совпадения в БД — используется fallback из корзины (при строгих данных из БД такого быть не должно)', 'puppeteer-generator', { itemName: item.name, itemModel: item.model, itemFinish: item.finish, itemColor: item.color, itemWidth: item.width, itemHeight: item.height });
+        logger.warn('Экспорт: нет совпадения в БД — используется fallback из корзины', 'puppeteer-generator', { itemName: item.name, itemModel: item.model });
         
         const row = worksheet.getRow(rowIndex);
         row.getCell(1).value = globalRowNumber++;
-        row.getCell(2).value = getDisplayNameForExport(item);
-        row.getCell(3).value = item.qty || item.quantity || 1;
-        row.getCell(4).value = item.unitPrice || 0;
-        row.getCell(5).value = (item.qty || item.quantity || 1) * (item.unitPrice || 0);
+        row.getCell(2).value = displayName;
+        row.getCell(3).value = qty;
+        row.getCell(4).value = unitPrice;
+        row.getCell(5).value = rowTotal;
         row.getCell(4).numFmt = '#,##0';
         row.getCell(5).numFmt = '#,##0';
 
-        const isDoor = getItemType(item as any) === 'door';
-        const modelNameFallback = (item.model || '').toString().replace(/DomeoDoors_/g, '').replace(/_/g, ' ').trim() || '';
-        const fallbackModelName = isDoor ? (await getModelNameByCode(item.model)) || modelNameFallback : '';
+        const fallbackModelName = (item.model || '').toString().replace(/DomeoDoors_/g, '').replace(/_/g, ' ').trim() || '';
         const fallbackProps = isDoor ? await getFirstProductPropsByModelCode(item.model) : null;
         const mergedProps = fallbackProps
           ? {
@@ -671,87 +651,49 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
           }
           colIndex++;
         });
-        
-        // Цветовое выделение и выравнивание: строка из корзины - белый фон
         for (let col = 1; col <= allHeaders.length; col++) {
-          row.getCell(col).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFFFFFFF' } // Белый фон для строки из корзины
-          };
-          // Выравнивание по центру
-          row.getCell(col).alignment = { 
-            vertical: 'middle', 
-            horizontal: 'center' 
-          };
+          row.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+          row.getCell(col).alignment = { vertical: 'middle', horizontal: 'center' };
         }
-        
-        // Добавляем границу после товара (если не последний)
         if (i < data.items.length - 1) {
           for (let col = 1; col <= allHeaders.length; col++) {
-            const cell = worksheet.getCell(rowIndex - 1, col);
+            const cell = worksheet.getCell(rowIndex, col);
             if (!cell.border) cell.border = {};
             cell.border.bottom = { style: 'thin', color: { argb: 'FF000000' } };
           }
         }
-        
         rowIndex++;
       } else {
-        // Создаем одну строку корзины с объединенными ячейками для данных из БД
-        logger.debug('Создаем объединенную строку для товара из корзины', 'puppeteer-generator', { itemName: item.name, matchingCount: matchingProducts.length });
-        
+        // Одна строка корзины с объединенными ячейками для данных из БД
         const row = worksheet.getRow(rowIndex);
-        
-        // Базовые поля (заполняем только один раз): полный набор опций двери / ручки / ограничителя
-        row.getCell(1).value = globalRowNumber++; // №
-        row.getCell(2).value = getDisplayNameForExport(item); // Наименование: опции двери или ручка/ограничитель
-        row.getCell(3).value = item.qty || item.quantity || 1; // Количество из корзины
-        row.getCell(4).value = item.unitPrice || 0; // Цена из корзины
-        row.getCell(5).value = (item.qty || item.quantity || 1) * (item.unitPrice || 0); // Сумма
-        
-        // Форматирование чисел (без .00 и с разделителями групп разрядов)
+        row.getCell(1).value = globalRowNumber++;
+        row.getCell(2).value = displayName;
+        row.getCell(3).value = qty;
+        row.getCell(4).value = unitPrice;
+        row.getCell(5).value = rowTotal;
         row.getCell(4).numFmt = '#,##0';
         row.getCell(5).numFmt = '#,##0';
-        
-        // Объединяем ячейки для базовых полей (если есть несколько товаров из БД)
         if (matchingProducts.length > 1) {
-          // Объединяем ячейки базовых полей по вертикали
           for (let col = 1; col <= 5; col++) {
-            const startRow = rowIndex;
-            const endRow = rowIndex + matchingProducts.length - 1;
-            if (startRow !== endRow) {
-              worksheet.mergeCells(startRow, col, endRow, col);
-              // Выравниваем по центру для объединенных ячеек
-              row.getCell(col).alignment = { 
-                vertical: 'middle', 
-                horizontal: 'center' 
-              };
-            }
+            worksheet.mergeCells(rowIndex, col, rowIndex + matchingProducts.length - 1, col);
+            row.getCell(col).alignment = { vertical: 'middle', horizontal: 'center' };
           }
         }
-        
-        // Заполняем поля из БД для каждого найденного товара
         let currentRowIndex = rowIndex;
-        
         for (let productIndex = 0; productIndex < matchingProducts.length; productIndex++) {
           const productData = matchingProducts[productIndex];
-          logger.debug('Заполняем поля из БД для товара', 'puppeteer-generator', { productSku: productData.sku, productIndex: productIndex + 1, total: matchingProducts.length });
-          
           const currentRow = worksheet.getRow(currentRowIndex);
-          let colIndex = 6; // Начинаем с 6-й колонки (после базовых)
-          
+          let colIndex = 6;
           if (productData.properties_data) {
             try {
               const props = typeof productData.properties_data === 'string' 
                 ? JSON.parse(productData.properties_data) 
                 : productData.properties_data;
-              
               const source = {
                 item: item as any,
                 supplierName: (data.supplier?.name ?? '').toString().trim(),
                 props
               };
-              logger.debug('Тип товара, заполняем поля', 'puppeteer-generator', { itemType: item.type, productSku: productData.sku });
               dbFields.forEach((fieldName: ExcelDoorFieldName) => {
                 const value = getDoorFieldValue(fieldName, source);
                 if (value !== undefined && value !== null && value !== '') {
@@ -765,40 +707,24 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
                 colIndex++;
               });
             } catch (e) {
-              logger.warn('Ошибка парсинга properties_data для товара', 'puppeteer-generator', { error: e instanceof Error ? e.message : String(e), productId: productData.id, productSku: productData.sku });
-              // Заполняем пустыми значениями
+              logger.warn('Ошибка парсинга properties_data для товара', 'puppeteer-generator', { error: e instanceof Error ? e.message : String(e), productSku: productData.sku });
               dbFields.forEach(() => {
                 currentRow.getCell(colIndex).value = '';
                 colIndex++;
               });
             }
           } else {
-            logger.warn('Нет properties_data для товара', 'puppeteer-generator', { productId: productData.id, productSku: productData.sku });
-            // Заполняем пустыми значениями
             dbFields.forEach(() => {
               currentRow.getCell(colIndex).value = '';
               colIndex++;
             });
           }
-          
-          // Цветовое выделение и выравнивание: строка из БД - светло-серый фон
           for (let col = 1; col <= allHeaders.length; col++) {
-            currentRow.getCell(col).fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb: 'FFF0F0F0' } // Светло-серый фон для строки из БД
-            };
-            // Выравнивание по центру
-            currentRow.getCell(col).alignment = { 
-              vertical: 'middle', 
-              horizontal: 'center' 
-            };
+            currentRow.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+            currentRow.getCell(col).alignment = { vertical: 'middle', horizontal: 'center' };
           }
-          
           currentRowIndex++;
         }
-        
-        // Добавляем границу после группы товаров (если не последний товар)
         if (i < data.items.length - 1) {
           for (let col = 1; col <= allHeaders.length; col++) {
             const cell = worksheet.getCell(currentRowIndex - 1, col);
@@ -806,13 +732,11 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
             cell.border.bottom = { style: 'thin', color: { argb: 'FF000000' } };
           }
         }
-        
-        // Обновляем rowIndex для следующего товара из корзины
         rowIndex = currentRowIndex;
       }
     }
 
-    // Добавляем границу после последней группы товаров
+    // Граница после последней группы товаров
     for (let col = 1; col <= allHeaders.length; col++) {
       const lastDataCell = worksheet.getCell(rowIndex - 1, col);
       if (!lastDataCell.border) lastDataCell.border = {};
@@ -828,10 +752,10 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
     totalRow.getCell(5).numFmt = '#,##0';
     totalRow.getCell(5).font = { bold: true };
 
-    // Ширина колонок: Наименование — шире, остальные базовые и свойства — по умолчанию
+    // Ширина колонок
     worksheet.columns.forEach((column, index) => {
       if (index === 1) {
-        column.width = 50; // Наименование — полный текст
+        column.width = 50;
       } else if (index < 6) {
         column.width = 15;
       } else {
@@ -839,8 +763,7 @@ export async function generateExcelOrder(data: any): Promise<Buffer> {
       }
     });
 
-    // Границы для таблицы
-    const lastCol = String.fromCharCode(65 + allHeaders.length - 1);
+    const lastCol = String.fromCharCode(65 + Math.min(allHeaders.length, 26) - 1);
     const range = `A10:${lastCol}${rowIndex}`;
     worksheet.getCell(range).border = {
       top: { style: 'thin' },

@@ -673,23 +673,19 @@ export default function FigmaExactReplicaPage() {
     ? allHandles.find(h => h.id === selectedHandleId)
     : null;
 
-  // Типы покрытия: из каскада или из модели; при смене модели выставляем первый доступный
+  // Типы покрытия: объединяем каскад и complete-data, чтобы показывать все (ПВХ, Эмаль, ПЭТ и т.д.) — после отката товаров каскад даёт по одному типу, а цвета есть в PropertyPhoto по разным покрытиям
   const cascadeFinishes = useMemo(() => {
-    if (selectedModelId && modelOptionsData.finishes.length > 0) return modelOptionsData.finishes;
-    return finishes;
+    const fromComplete = finishes || [];
+    const fromCascade = selectedModelId && modelOptionsData.finishes.length > 0 ? modelOptionsData.finishes : [];
+    const merged = new Set([...fromComplete, ...fromCascade].filter(Boolean));
+    return Array.from(merged).sort();
   }, [selectedModelId, modelOptionsData.finishes, finishes]);
 
-  // Цвета полотна: только те, что есть и в complete-data (coatings), и в каскаде (model-options colorsByFinish). Строгая фильтрация.
+  // Цвета полотна: из complete-data (coatings + PropertyPhoto). Не фильтруем по каскаду — каскад строится из товаров, после отката там по одному цвету на покрытие; полный список цветов берём из complete-data.
   const filteredCoatings = useMemo(() => {
     if (!selectedFinish || !coatings.length) return [];
-    let list = coatings.filter((c) => c.coating_type === selectedFinish);
-    const allowedColors = modelOptionsData.colorsByFinish[selectedFinish];
-    if (selectedModelId && Array.isArray(allowedColors) && allowedColors.length > 0) {
-      const allowed = new Set(allowedColors.map((s) => String(s).trim()));
-      list = list.filter((c) => allowed.has(String(c.color_name ?? '').trim()));
-    }
-    return list;
-  }, [coatings, selectedFinish, selectedModelId, modelOptionsData.colorsByFinish]);
+    return coatings.filter((c) => c.coating_type === selectedFinish);
+  }, [coatings, selectedFinish]);
 
   // При смене модели: если выбранное покрытие/цвет не входят в список для новой модели — выставляем первый допустимый
   useEffect(() => {
